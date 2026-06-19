@@ -3,6 +3,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const LspManager = require('./lsp/manager');
 
 try { require('electron-reload')(__dirname); } catch (_) {}
 
@@ -12,7 +13,53 @@ let activeSessionId = null;
 let busy = false;
 let termProc = null;
 
+const termProcs = new Map();
+let termNextId = 1;
+
+const lspManager = new LspManager();
+registerProject(cwd);
+
 const SESSIONS_DIR = path.join(os.homedir(), '.omp', 'agent', 'sessions');
+const PROJECTS_FILE = path.join(os.homedir(), '.omp', 'projects.json');
+
+function loadProjects() {
+  try {
+    if (fs.existsSync(PROJECTS_FILE)) return JSON.parse(fs.readFileSync(PROJECTS_FILE, 'utf8'));
+  } catch (_) {}
+  return {};
+}
+
+function saveProjects(map) {
+  try {
+    fs.writeFileSync(PROJECTS_FILE, JSON.stringify(map, null, 2));
+  } catch (_) {}
+}
+
+function registerProject(cwdPath) {
+  const key = cwdPath.replace(/\//g, '-');
+  const map = loadProjects();
+  map[key] = cwdPath;
+  saveProjects(map);
+}
+
+function resolveProjectPath(projectKey) {
+  const map = loadProjects();
+  if (map[projectKey]) return map[projectKey];
+  const segments = projectKey.split('-').filter(Boolean);
+  const candidate = '/' + segments.join('/');
+  if (fs.existsSync(candidate)) {
+    map[projectKey] = candidate;
+    saveProjects(map);
+    return candidate;
+  }
+  const homeCandidate = path.join(os.homedir(), ...segments);
+  if (fs.existsSync(homeCandidate)) {
+    map[projectKey] = homeCandidate;
+    saveProjects(map);
+    return homeCandidate;
+  }
+  return null;
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -32,6 +79,7 @@ function createWindow() {
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
+  lspManager.shutdown();
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -49,6 +97,7 @@ ipcMain.handle('cwd:pick', async () => {
   if (!result.canceled && result.filePaths.length > 0) {
     cwd = result.filePaths[0];
     activeSessionId = null;
+    registerProject(cwd);
   }
   return cwd;
 });
@@ -70,18 +119,20 @@ ipcMain.handle('sessions:list', async () => {
         const filePath = path.join(dirPath, file);
         const sessionId = file.replace(/\.jsonl$/, '');
         let title = file;
+        let projectPath = null;
         try {
-          const firstLine = fs.readFileSync(filePath, 'utf8').split('\n')[0];
-          const msg = JSON.parse(firstLine);
-          if (msg.message && msg.message.content) {
-            const texts = msg.message.content
-              .filter(c => c.type === 'text')
-              .map(c => c.text)
-              .join(' ');
-            if (texts) title = texts.slice(0, 80);
+          const lines = fs.readFileSync(filePath, 'utf8').split('\n').filter(l => l.trim());
+          for (const raw of lines) {
+            const ev = JSON.parse(raw);
+            if (ev.type === 'session' && ev.cwd) projectPath = ev.cwd;
+            if (ev.type === 'message' && ev.message && ev.message.role === 'user' && !title) {
+              const texts = (ev.message.content || []).filter(c => c.type === 'text').map(c => c.text).join(' ');
+              if (texts) { title = texts.slice(0, 80); break; }
+            }
           }
         } catch (_) {}
-        sessions.push({ id: sessionId, title, project: proj, filePath });
+        if (!projectPath) projectPath = resolveProjectPath(proj);
+        sessions.push({ id: sessionId, title, project: proj, projectPath, filePath });
       }
     }
   } catch (_) {}
@@ -94,8 +145,14 @@ ipcMain.handle('session:resume', (_event, id) => {
   return id;
 });
 
+ipcMain.handle('project:resolve', (_event, projectKey) => {
+  return resolveProjectPath(projectKey);
+});
+
 ipcMain.handle('session:history', async (_event, id) => {
   const messages = [];
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
   try {
     const projectDirs = fs.readdirSync(SESSIONS_DIR);
     for (const proj of projectDirs) {
@@ -115,14 +172,106 @@ ipcMain.handle('session:history', async (_event, id) => {
                 messages.push({ role: msg.role, text: texts, thinking: thinkings });
               }
             }
+            if (ev.message && ev.message.usage) {
+              totalInputTokens = ev.message.usage.input || totalInputTokens;
+              totalOutputTokens = ev.message.usage.output || totalOutputTokens;
+            }
           } catch (_) {}
         }
         break;
       }
     }
   } catch (_) {}
-  console.log('history for', id, ':', JSON.stringify(messages, null, 2));
-  return messages;
+  return { messages, usage: { input: totalInputTokens, output: totalOutputTokens, totalTokens: totalInputTokens + totalOutputTokens } };
+});
+
+lspManager.on('diagnostics', (params) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('lsp:diagnostics', params);
+  }
+});
+
+lspManager.on('ready', (info) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('lsp:ready', info);
+  }
+});
+
+ipcMain.handle('lsp:initialize', async () => {
+  await lspManager.initialize(cwd);
+  return { languages: lspManager.getReadyLanguages() };
+});
+
+ipcMain.handle('lsp:open', async (_event, filePath) => {
+  const text = fs.readFileSync(filePath, 'utf8');
+  return await lspManager.openDocument(filePath, text);
+});
+
+ipcMain.handle('lsp:close', async (_event, filePath) => {
+  lspManager.closeDocument(filePath);
+});
+
+ipcMain.handle('lsp:change', async (_event, filePath, text) => {
+  await lspManager.changeDocument(filePath, text);
+});
+
+ipcMain.handle('lsp:completion', async (_event, filePath, line, character) => {
+  return await lspManager.completion(filePath, line, character);
+});
+
+ipcMain.handle('lsp:hover', async (_event, filePath, line, character) => {
+  return await lspManager.hover(filePath, line, character);
+});
+
+ipcMain.handle('lsp:definition', async (_event, filePath, line, character) => {
+  return await lspManager.definition(filePath, line, character);
+});
+
+ipcMain.handle('lsp:references', async (_event, filePath, line, character) => {
+  return await lspManager.references(filePath, line, character);
+});
+
+ipcMain.handle('lsp:diagnostics', async (_event, filePath) => {
+  return lspManager.getDiagnosticsForFile(filePath);
+});
+
+ipcMain.handle('lsp:all-diagnostics', async () => {
+  return lspManager.getAllDiagnostics();
+});
+
+ipcMain.handle('file:read', async (_event, filePath) => {
+  return fs.readFileSync(filePath, 'utf8');
+});
+
+ipcMain.handle('file:list-dir', async (_event, dirPath) => {
+  const entries = [];
+  try {
+    const names = fs.readdirSync(dirPath);
+    for (const name of names) {
+      const full = path.join(dirPath, name);
+      try {
+        const stat = fs.statSync(full);
+        entries.push({ name, path: full, isDirectory: stat.isDirectory() });
+      } catch (_) {}
+    }
+  } catch (_) {}
+  entries.sort((a, b) => {
+    if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  return entries;
+});
+
+ipcMain.handle('file:pick', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    title: 'Open file',
+    defaultPath: cwd,
+  });
+  if (!result.canceled && result.filePaths.length > 0) {
+    return result.filePaths[0];
+  }
+  return null;
 });
 
 ipcMain.handle('llm:send', (_event, prompt) => {
@@ -158,6 +307,9 @@ ipcMain.handle('llm:send', (_event, prompt) => {
             mainWindow.webContents.send('llm:text', inner.delta);
           }
         }
+        if (ev.message && ev.message.usage) {
+          mainWindow.webContents.send('llm:usage', ev.message.usage);
+        }
       } catch (_) {
         mainWindow.webContents.send('llm:chunk', line);
       }
@@ -180,27 +332,35 @@ ipcMain.handle('llm:send', (_event, prompt) => {
 });
 
 ipcMain.handle('term:create', () => {
-  if (termProc) termProc.kill();
+  const id = String(termNextId++);
   const shell = process.env.SHELL || '/bin/zsh';
   const pty = require('node-pty');
   try {
-    termProc = pty.spawn(shell, [], { cwd, env: process.env, cols: 80, rows: 24 });
+    const proc = pty.spawn(shell, [], { cwd, env: process.env, cols: 80, rows: 24 });
+    proc.onData((data) => mainWindow.webContents.send('term:data', id, data));
+    proc.onExit(() => {
+      termProcs.delete(id);
+      mainWindow.webContents.send('term:exit', id);
+    });
+    termProcs.set(id, proc);
+    return id;
   } catch (err) {
     console.error('pty spawn failed:', err.message);
-    return;
+    return null;
   }
-  termProc.onData((data) => mainWindow.webContents.send('term:data', data));
-  termProc.onExit(() => { termProc = null; mainWindow.webContents.send('term:exit'); });
 });
 
-ipcMain.on('term:write', (_e, data) => {
-  if (termProc) termProc.write(data);
+ipcMain.on('term:write', (_e, tabId, data) => {
+  const proc = termProcs.get(tabId);
+  if (proc) proc.write(data);
 });
 
-ipcMain.on('term:resize', (_e, cols, rows) => {
-  if (termProc) termProc.resize(cols, rows);
+ipcMain.on('term:resize', (_e, tabId, cols, rows) => {
+  const proc = termProcs.get(tabId);
+  if (proc) proc.resize(cols, rows);
 });
 
-ipcMain.on('term:destroy', () => {
-  if (termProc) { termProc.kill(); termProc = null; }
+ipcMain.on('term:destroy', (_e, tabId) => {
+  const proc = termProcs.get(tabId);
+  if (proc) { proc.kill(); termProcs.delete(tabId); }
 });

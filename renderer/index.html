@@ -10,29 +10,66 @@
 <body>
   <div id="app">
     <div id="sidebar">
-      <div id="sidebar-header">
-        <span>Chats</span>
-        <button id="new-session" title="New session">+</button>
+      <div id="sessions-section">
+        <div id="sidebar-header">
+          <span>Chats</span>
+          <button id="new-session" title="New session">+</button>
+        </div>
+        <div id="session-list"></div>
       </div>
-      <div id="session-list"></div>
+      <div class="sash sash-horizontal" id="sash-sidebar-inner"></div>
+      <div id="files-section">
+        <div id="sidebar-header">
+          <span>Files</span>
+          <button id="open-file-btn" title="Open file">+</button>
+        </div>
+        <div id="file-tree"></div>
+      </div>
     </div>
+    <div class="sash sash-vertical" id="sash-sidebar"></div>
     <div id="main">
       <div id="cwd-bar">
+        <button id="sidebar-toggle" title="Toggle sidebar (Ctrl+B)">☰</button>
         <span id="cwd-label" title="Click to change directory">📁</span>
         <span id="cwd-path"></span>
-        <button id="term-toggle" title="Toggle terminal">Term</button>
+        <button id="term-toggle" title="Toggle terminal (Ctrl+`)">Term</button>
       </div>
-      <div id="response"></div>
+      <div id="content-area">
+        <div id="response"></div>
+        <div id="editor-panel">
+          <div id="editor-header">
+            <span id="editor-file-name"></span>
+            <span id="editor-lang-status"></span>
+            <button id="editor-close-btn" title="Close editor">x</button>
+          </div>
+          <div id="editor"></div>
+          <div id="editor-statusbar">
+            <span id="editor-lang-label"></span>
+            <span id="editor-position"></span>
+          </div>
+        </div>
+      </div>
+      <div class="sash sash-horizontal" id="sash-terminal"></div>
       <div id="terminal-panel">
+        <div id="terminal-header">
+          <div id="terminal-tabs"></div>
+          <button id="terminal-add-btn" title="New terminal">+</button>
+        </div>
         <div id="terminal"></div>
       </div>
       <div id="input-area">
-        <textarea id="prompt" placeholder="Ask something..." rows="2"></textarea>
+        <div id="input-bar">
+          <textarea id="prompt" placeholder="Ask something..." rows="2"></textarea>
+        </div>
+        <div id="token-bar">
+          <span id="token-info"></span>
+        </div>
       </div>
     </div>
   </div>
   <script src="lib/xterm.js"></script>
   <script src="lib/addon-fit.js"></script>
+  <script src="bundle/editor-bundle.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
