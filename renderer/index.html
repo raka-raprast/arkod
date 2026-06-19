@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Oh My Pi</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="lib/xterm.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="sidebar">
+      <div id="sidebar-header">
+        <span>Chats</span>
+        <button id="new-session" title="New session">+</button>
+      </div>
+      <div id="session-list"></div>
+    </div>
+    <div id="main">
+      <div id="cwd-bar">
+        <span id="cwd-label" title="Click to change directory">📁</span>
+        <span id="cwd-path"></span>
+        <button id="term-toggle" title="Toggle terminal">Term</button>
+      </div>
+      <div id="response"></div>
+      <div id="terminal-panel">
+        <div id="terminal"></div>
+      </div>
+      <div id="input-area">
+        <textarea id="prompt" placeholder="Ask something..." rows="2"></textarea>
+      </div>
+    </div>
+  </div>
+  <script src="lib/xterm.js"></script>
+  <script src="lib/addon-fit.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

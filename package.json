@@ -1,0 +1,22 @@
+{
+  "name": "oh-my-pi",
+  "version": "0.1.0",
+  "description": "Desktop LLM assistant — like Codex for macOS",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
+    "electron": "^34.5.8",
+    "electron-reload": "^2.0.0-alpha.1"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "highlight.js": "^11.11.1",
+    "node-pty": "^1.1.0",
+    "xterm": "^5.3.0"
+  }
+}
