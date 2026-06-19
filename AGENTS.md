@@ -2,7 +2,7 @@
 
 ## Project
 
-Simple macOS Electron desktop app ("Oh My Pi") — a text field + LLM reply window, inspired by Codex.
+Simple macOS Electron desktop app ("Arkod") — a text field + LLM reply window, inspired by Codex.
 
 ## Tech Stack
 

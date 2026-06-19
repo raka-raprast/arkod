@@ -655,7 +655,7 @@ async function loadSessions() {
         if (activeSessionId === s.id) {
           activeSessionId = null;
           responseEl.innerHTML = '';
-          responseEl.textContent = 'Oh My Pi ready.\n';
+          responseEl.textContent = 'Arkod ready.\n';
         }
         loadSessions();
       });
@@ -923,7 +923,7 @@ if (deleteAllBtn) {
     sessionDiffs = {};
     activeSessionId = null;
     responseEl.innerHTML = '';
-    responseEl.textContent = 'Oh My Pi ready.\n';
+    responseEl.textContent = 'Arkod ready.\n';
     loadSessions();
   });
 }
@@ -931,7 +931,7 @@ if (deleteAllBtn) {
 if (!promptEl || !responseEl) {
   console.error('Missing elements: prompt=', !!promptEl, 'response=', !!responseEl);
 } else {
-  responseEl.textContent = 'Oh My Pi ready.\n';
+  responseEl.textContent = 'Arkod ready.\n';
   setTimeout(() => loadSessions(), 0);
 
   window.api.onSession((id) => {
