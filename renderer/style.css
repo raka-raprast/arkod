@@ -1164,6 +1164,34 @@ body.dragging .sash.active {
   color: #ccc;
   font-weight: 600;
   font-family: 'SF Mono', Monaco, Menlo, monospace;
+  flex-shrink: 0;
+}
+
+#git-branch-actions {
+  display: flex;
+  gap: 4px;
+  margin: 0 8px;
+}
+
+.git-action-btn {
+  background: #3c3c3c;
+  border: 1px solid #555;
+  color: #999;
+  cursor: pointer;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.git-action-btn:hover {
+  background: #444;
+  color: #ccc;
+}
+
+.git-action-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 #git-refresh-btn {
@@ -1520,7 +1548,34 @@ body.dragging .sash.active {
   min-height: 0;
 }
 
+#git-branch-create-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #333;
+}
+
+.git-sidebar-input {
+  flex: 1;
+  background: #3c3c3c;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 3px 6px;
+  font-size: 11px;
+  font-family: inherit;
+  outline: none;
+  min-width: 0;
+}
+
+.git-sidebar-input:focus {
+  border-color: #007acc;
+}
+
 .git-branch-item {
+  display: flex;
+  align-items: center;
   padding: 5px 12px;
   font-size: 12px;
   color: #ccc;
@@ -1528,7 +1583,6 @@ body.dragging .sash.active {
   border-left: 2px solid transparent;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .git-branch-item:hover {
@@ -1539,6 +1593,32 @@ body.dragging .sash.active {
   background: #37373d;
   border-left-color: #f0a050;
   color: #fff;
+}
+
+.git-branch-name-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-branch-delete-btn {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 3px;
+  line-height: 1;
+  flex-shrink: 0;
+  visibility: hidden;
+}
+
+.git-branch-item:hover .git-branch-delete-btn {
+  visibility: visible;
+}
+
+.git-branch-delete-btn:hover {
+  color: #f44747;
 }
 
 .git-stash-save-row {

@@ -194,6 +194,7 @@ function switchSidebarTab(tabName) {
   if (view) view.classList.add('active');
 
   if (tabName === 'chats') {
+    window.api.gitWatchStop();
     sashInner.classList.add('visible');
     sidebarEl.classList.remove('collapsed');
     sidebarEl.style.width = '220px';
@@ -210,6 +211,7 @@ function switchSidebarTab(tabName) {
       sashSidebar.classList.add('visible');
       if (sashGitSidebar) sashGitSidebar.classList.add('visible');
     } else {
+      window.api.gitWatchStop();
       sashInner.classList.remove('visible');
       sidebarEl.classList.add('collapsed');
       sidebarEl.style.width = '0px';
@@ -1509,9 +1511,14 @@ if (!promptEl || !responseEl) {
     responseEl.innerHTML = '';
     responseEl.textContent = 'Arkod ready.\n';
     gitInitialized = false;
+    window.api.gitWatchStop();
     refreshFileTree();
     await loadSessions();
     if (activeSidebarTab === 'git') initGitTab();
+  });
+
+  window.api.onGitChanged(() => {
+    if (activeSidebarTab === 'git') refreshGitUI();
   });
 
   promptEl.addEventListener('keydown', async (e) => {
@@ -1611,6 +1618,14 @@ if (gitCommitMsg) gitCommitMsg.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') gitCommitBtn.click();
 });
 
+const gitStageAllBtn = document.getElementById('git-stage-all-btn');
+if (gitStageAllBtn) {
+  gitStageAllBtn.addEventListener('click', async () => {
+    await window.api.gitStageAll();
+    refreshGitUI();
+  });
+}
+
 const gitUnstageAllBtn = document.getElementById('git-unstage-all-btn');
 if (gitUnstageAllBtn) {
   gitUnstageAllBtn.addEventListener('click', async () => {
@@ -1619,9 +1634,110 @@ if (gitUnstageAllBtn) {
   });
 }
 
+// ── Git action bar buttons ──
+
+const gitFetchBtn = document.getElementById('git-fetch-btn');
+const gitPullBtn = document.getElementById('git-pull-btn');
+const gitPushBtn = document.getElementById('git-push-btn');
+const gitRebaseBtn = document.getElementById('git-rebase-btn');
+const gitMergeBtn = document.getElementById('git-merge-btn');
+const gitCreateBranchBtn = document.getElementById('git-create-branch-btn');
+const gitNewBranchInput = document.getElementById('git-new-branch-input');
+
+if (gitFetchBtn) gitFetchBtn.addEventListener('click', async () => {
+  gitFetchBtn.disabled = true;
+  gitFetchBtn.textContent = '...';
+  const r = await window.api.gitFetch();
+  if (r.error) alert('Fetch failed: ' + r.error);
+  await refreshGitUI();
+  gitFetchBtn.disabled = false;
+  gitFetchBtn.textContent = '⇣ Fetch';
+});
+
+if (gitPullBtn) gitPullBtn.addEventListener('click', async () => {
+  gitPullBtn.disabled = true;
+  gitPullBtn.textContent = '...';
+  const r = await window.api.gitPull();
+  if (r.error) alert('Pull failed: ' + r.error);
+  await refreshGitUI();
+  gitPullBtn.disabled = false;
+  gitPullBtn.textContent = '↓ Pull';
+});
+
+if (gitPushBtn) gitPushBtn.addEventListener('click', async () => {
+  gitPushBtn.disabled = true;
+  gitPushBtn.textContent = '...';
+  const r = await window.api.gitPush();
+  if (r.error) alert('Push failed: ' + r.error);
+  await refreshGitUI();
+  gitPushBtn.disabled = false;
+  gitPushBtn.textContent = '↑ Push';
+});
+
+async function gitActionOnBranch(action, actionLabel) {
+  const data = await window.api.gitBranches();
+  const branches = data.branches.filter(b => !b.current);
+  if (branches.length === 0) { alert('No other branches to ' + actionLabel); return; }
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.3)';
+  overlay.addEventListener('click', () => overlay.remove());
+
+  const picker = document.createElement('div');
+  picker.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#252526;border:1px solid #454545;border-radius:8px;padding:8px;z-index:1000;max-height:360px;width:280px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.5)';
+  picker.addEventListener('click', (e) => e.stopPropagation());
+
+  const title = document.createElement('div');
+  title.style.cssText = 'padding:4px 8px;font-size:11px;color:#888;text-transform:uppercase;margin-bottom:4px';
+  title.textContent = actionLabel + ' onto branch:';
+  picker.appendChild(title);
+
+  const list = document.createElement('div');
+  list.style.cssText = 'overflow-y:auto;flex:1;min-height:0';
+  picker.appendChild(list);
+
+  for (const b of branches) {
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:5px 8px;cursor:pointer;font-size:12px;color:#ccc;border-radius:3px';
+    row.textContent = b.name;
+    row.addEventListener('mouseenter', () => { row.style.background = '#2a2d2e'; });
+    row.addEventListener('mouseleave', () => { row.style.background = ''; });
+    row.addEventListener('click', async () => {
+      overlay.remove();
+      const fn = action === 'rebase' ? window.api.gitRebase : window.api.gitMerge;
+      const r = await fn(b.name);
+      if (r.error) alert(actionLabel + ' failed: ' + r.error);
+      refreshGitUI();
+    });
+    list.appendChild(row);
+  }
+
+  overlay.appendChild(picker);
+  document.body.appendChild(overlay);
+}
+
+if (gitRebaseBtn) gitRebaseBtn.addEventListener('click', () => gitActionOnBranch('rebase', 'Rebase'));
+if (gitMergeBtn) gitMergeBtn.addEventListener('click', () => gitActionOnBranch('merge', 'Merge'));
+
+if (gitCreateBranchBtn && gitNewBranchInput) gitCreateBranchBtn.addEventListener('click', async () => {
+  const name = gitNewBranchInput.value.trim();
+  if (!name) return;
+  gitCreateBranchBtn.disabled = true;
+  const r = await window.api.gitCreateBranch(name);
+  if (r.error) { alert('Create branch failed: ' + r.error); }
+  else gitNewBranchInput.value = '';
+  gitCreateBranchBtn.disabled = false;
+  refreshGitUI();
+});
+
+if (gitNewBranchInput) gitNewBranchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && gitCreateBranchBtn) gitCreateBranchBtn.click();
+});
+
 async function initGitTab() {
   if (gitInitialized) { refreshGitUI(); return; }
   gitInitialized = true;
+  window.api.gitWatchStart();
 
   gitRepo = await window.api.gitRepoCheck();
   if (!gitRepo) {
@@ -1760,10 +1876,15 @@ async function renderBranches() {
   for (const b of data.branches) {
     const row = document.createElement('div');
     row.className = 'git-branch-item' + (b.current ? ' active' : '');
-    row.textContent = b.name;
-    row.title = b.current ? 'Current branch' : 'Switch to ' + b.name;
+    row.title = b.current ? 'Current branch' : 'Click to switch';
+
+    const name = document.createElement('span');
+    name.className = 'git-branch-name-label';
+    name.textContent = b.name;
+    row.appendChild(name);
+
     if (!b.current) {
-      row.addEventListener('click', async () => {
+      name.addEventListener('click', async () => {
         const result = await window.api.gitCheckout(b.name);
         if (result.error) {
           alert('Checkout failed: ' + result.error);
@@ -1771,7 +1892,22 @@ async function renderBranches() {
           refreshGitUI();
         }
       });
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'git-branch-delete-btn';
+      delBtn.textContent = '×';
+      delBtn.title = 'Delete branch';
+      delBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const ok = await showConfirm(`Delete branch "${b.name}"?`, true);
+        if (!ok) return;
+        const result = await window.api.gitDeleteBranch(b.name);
+        if (result.error) alert('Delete failed: ' + result.error);
+        refreshGitUI();
+      });
+      row.appendChild(delBtn);
     }
+
     gitBranchList.appendChild(row);
   }
 }

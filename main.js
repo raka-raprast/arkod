@@ -18,6 +18,7 @@ let termProc = null;
 let fileSnapshots = {};
 let filePollInterval = null;
 let lastDirHash = null;
+let lastGitIndexMtime = null;
 
 const termProcs = new Map();
 let termNextId = 1;
@@ -40,6 +41,7 @@ registerProject(cwd);
 function stopFileWatcher() {
   if (filePollInterval) { clearInterval(filePollInterval); filePollInterval = null; }
   lastDirHash = null;
+  lastGitIndexMtime = null;
 }
 
 function dirHash(dirPath) {
@@ -59,11 +61,31 @@ function notifyTreeIfChanged(dir) {
   }
 }
 
+function notifyGitIfChanged(dir) {
+  try {
+    const indexPath = path.join(dir, '.git', 'index');
+    const mtime = fs.statSync(indexPath).mtimeMs;
+    if (mtime !== lastGitIndexMtime) {
+      lastGitIndexMtime = mtime;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('git:changed', {});
+      }
+    }
+  } catch (_) {}
+}
+
 function startFileWatcher(dir) {
   stopFileWatcher();
   if (!dir || !fs.existsSync(dir)) return;
   lastDirHash = dirHash(dir);
-  filePollInterval = setInterval(() => notifyTreeIfChanged(dir), 2000);
+  try {
+    const indexPath = path.join(dir, '.git', 'index');
+    lastGitIndexMtime = fs.statSync(indexPath).mtimeMs;
+  } catch (_) { lastGitIndexMtime = null; }
+  filePollInterval = setInterval(() => {
+    notifyTreeIfChanged(dir);
+    notifyGitIfChanged(dir);
+  }, 2000);
 }
 
 const SESSIONS_DIR = path.join(os.homedir(), '.omp', 'agent', 'sessions');
@@ -819,11 +841,37 @@ function execGit(args, timeout = 15000) {
       if (err) {
         reject(new Error(stderr.trim() || err.message));
       } else {
-        resolve(stdout.trim());
+        resolve(stdout.replace(/[\r\n]+$/, ''));
       }
     });
   });
 }
+
+let gitWatchInterval = null;
+let lastGitStatusOut = null;
+
+ipcMain.handle('git:watch-start', () => {
+  if (gitWatchInterval) return true;
+  try { lastGitStatusOut = null; } catch (_) {}
+  gitWatchInterval = setInterval(() => {
+    execFile('git', ['status', '--porcelain'], { cwd, timeout: 5000 }, (_err, stdout) => {
+      const out = (_err ? null : stdout) || '';
+      if (out !== lastGitStatusOut) {
+        lastGitStatusOut = out;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('git:changed', {});
+        }
+      }
+    });
+  }, 2000);
+  return true;
+});
+
+ipcMain.handle('git:watch-stop', () => {
+  if (gitWatchInterval) { clearInterval(gitWatchInterval); gitWatchInterval = null; }
+  lastGitStatusOut = null;
+  return true;
+});
 
 ipcMain.handle('git:repo-check', async () => {
   try { await execGit(['rev-parse', '--git-dir']); return true; } catch (_) { return false; }
@@ -977,24 +1025,89 @@ ipcMain.handle('git:stash-save', async (_event, message) => {
 
 ipcMain.handle('git:log', async () => {
   try {
-    const out = await execGit(['log', '--oneline', '--decorate', '--all', '-n', '50', '--format=%H %h %s %d %an %ar']);
+    const out = await execGit(['log', '--oneline', '--decorate', '--all', '-n', '50', '--format=%H||%h||%s||%d||%an||%ar']);
     const commits = [];
     for (const line of out.split('\n')) {
       if (!line.trim()) continue;
-      const parts = line.match(/^([a-f0-9]{40}) ([a-f0-9]+) (.+?) (\\(.*?\\))? ([^,]+), (.+)$/);
-      if (parts) {
+      const parts = line.split('||');
+      if (parts.length >= 6) {
+        const refStr = (parts[3] || '').trim();
+        const refs = refStr ? refStr.replace(/[()]/g, '').split(',').map(s => s.trim()).filter(Boolean) : [];
         commits.push({
-          hash: parts[1],
-          shortHash: parts[2],
-          message: parts[3],
-          refs: parts[4] ? parts[4].replace(/[()]/g, '').split(',').map(s => s.trim()).filter(Boolean) : [],
-          author: parts[5].trim(),
-          date: parts[6].trim(),
+          hash: parts[0],
+          shortHash: parts[1],
+          message: parts[2],
+          refs,
+          author: parts[4],
+          date: parts[5],
         });
       }
     }
     return commits;
   } catch (_) { return []; }
+});
+
+ipcMain.handle('git:pull', async () => {
+  try {
+    const result = await execGit(['pull'], 30000);
+    return { success: true, result };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('git:push', async () => {
+  try {
+    const result = await execGit(['push'], 30000);
+    return { success: true, result };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('git:fetch', async () => {
+  try {
+    const result = await execGit(['fetch', '--all'], 30000);
+    return { success: true, result };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('git:rebase', async (_event, branchName) => {
+  try {
+    const result = await execGit(['rebase', branchName], 30000);
+    return { success: true, result };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('git:merge', async (_event, branchName) => {
+  try {
+    const result = await execGit(['merge', branchName], 30000);
+    return { success: true, result };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('git:create-branch', async (_event, branchName) => {
+  try {
+    const result = await execGit(['checkout', '-b', branchName]);
+    return { success: true, result, branch: branchName };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('git:delete-branch', async (_event, branchName) => {
+  try {
+    const result = await execGit(['branch', '-d', branchName]);
+    return { success: true, result };
+  } catch (err) {
+    return { error: err.message };
+  }
 });
 
 ipcMain.handle('term:create', () => {
