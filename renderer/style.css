@@ -344,6 +344,26 @@ body.dragging .sash.active {
   overflow: hidden;
 }
 
+.main-view {
+  display: none;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.main-view.active {
+  display: flex;
+}
+
+#view-chats {
+  overflow-y: auto;
+}
+
+#view-settings {
+  padding: 0;
+}
+
 #cwd-bar {
   display: flex;
   align-items: center;
@@ -924,8 +944,14 @@ body.dragging .sash.active {
   border-top: 1px solid #333;
 }
 
+#model-info,
 #token-info {
   font-family: 'SF Mono', Monaco, Menlo, monospace;
+}
+
+#model-info {
+  color: #888;
+  margin-right: 12px;
 }
 
 #prompt {

@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -12,6 +12,7 @@ let mainWindow;
 let cwd = process.cwd();
 let activeSessionId = null;
 let busy = false;
+let currentModel = '';
 let termProc = null;
 let fileSnapshots = {};
 
@@ -90,6 +91,119 @@ app.on('activate', () => {
 });
 
 ipcMain.handle('cwd:get', () => cwd);
+
+ipcMain.handle('model:get', () => {
+  try {
+    const cfgPath = path.join(os.homedir(), '.omp', 'agent', 'config.yml');
+    if (fs.existsSync(cfgPath)) {
+      const text = fs.readFileSync(cfgPath, 'utf8');
+      const modelMatch = text.match(/^\s*default:\s*(.+)$/m);
+      if (modelMatch) {
+        currentModel = modelMatch[1].trim();
+      }
+      const roles = {};
+      const lines = text.split('\n');
+      let inRoles = false;
+      for (const line of lines) {
+        if (line.trim() === 'modelRoles:') { inRoles = true; continue; }
+        if (inRoles && /^\s{2,}\w+:/.test(line)) {
+          const m = line.match(/^\s+(\w+):\s*(.+)$/);
+          if (m) roles[m[1]] = m[2].trim();
+        } else if (inRoles && /^\w+:/.test(line)) {
+          inRoles = false;
+        }
+      }
+      return { model: currentModel, roles };
+    }
+  } catch (_) {}
+  return { model: currentModel, roles: {} };
+});
+
+ipcMain.handle('model:set', (_event, model) => {
+  currentModel = model;
+  try {
+    const cfgPath = path.join(os.homedir(), '.omp', 'agent', 'config.yml');
+    if (fs.existsSync(cfgPath)) {
+      let text = fs.readFileSync(cfgPath, 'utf8');
+      text = text.replace(/^(\s*default:\s*).*$/m, '$1' + model);
+      fs.writeFileSync(cfgPath, text);
+    }
+  } catch (_) {}
+  return model;
+});
+
+ipcMain.handle('model:list', () => {
+  return new Promise((resolve) => {
+    execFile('omp', ['models', '--json'], { timeout: 15000 }, (err, stdout) => {
+      if (err) return resolve([]);
+      try {
+        const data = JSON.parse(stdout);
+        const models = data.models || [];
+        const keys = loadApiKeys();
+        const filtered = models.filter(m => keys[m.provider] !== '__forgotten__');
+        resolve(filtered);
+      } catch (_) { resolve([]); }
+    });
+  });
+});
+
+const API_KEYS_FILE = path.join(os.homedir(), '.omp', 'agent', 'api-keys.json');
+
+function loadApiKeys() {
+  try {
+    if (fs.existsSync(API_KEYS_FILE)) return JSON.parse(fs.readFileSync(API_KEYS_FILE, 'utf8'));
+  } catch (_) {}
+  return {};
+}
+
+function saveApiKey(provider, key) {
+  const keys = loadApiKeys();
+  keys[provider] = key;
+  try { fs.writeFileSync(API_KEYS_FILE, JSON.stringify(keys, null, 2)); } catch (_) {}
+}
+
+const PROVIDER_ENV = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+  azure: 'AZURE_OPENAI_API_KEY',
+  groq: 'GROQ_API_KEY',
+  cerebras: 'CEREBRAS_API_KEY',
+  xai: 'XAI_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  mistral: 'MISTRAL_API_KEY',
+  zai: 'ZAI_API_KEY',
+  minimax: 'MINIMAX_API_KEY',
+  opencode: 'OPENCODE_API_KEY',
+  'opencode-go': 'OPENCODE_API_KEY',
+  'opencode-zen': 'OPENCODE_API_KEY',
+  cursor: 'CURSOR_ACCESS_TOKEN',
+  deepseek: 'DEEPSEEK_API_KEY',
+  moonshot: 'MOONSHOT_API_KEY',
+  fireworks: 'FIREWORKS_API_KEY',
+  together: 'TOGETHER_API_KEY',
+  perplexity: 'PERPLEXITY_API_KEY',
+  github: 'GITHUB_TOKEN',
+  vercel: 'VERCEL_API_KEY',
+  cloudflare: 'CLOUDFLARE_API_KEY',
+  ollama: 'OLLAMA_HOST',
+};
+
+ipcMain.handle('auth:save', (_event, provider, key) => {
+  saveApiKey(provider, key);
+  return true;
+});
+
+ipcMain.handle('auth:list', () => {
+  return loadApiKeys();
+});
+
+ipcMain.handle('auth:forget', (_event, provider) => {
+  const keys = loadApiKeys();
+  keys[provider] = '__forgotten__';
+  try { fs.writeFileSync(API_KEYS_FILE, JSON.stringify(keys, null, 2)); } catch (_) {}
+  return true;
+});
 
 ipcMain.handle('cwd:set', (_event, dir) => {
   if (dir && fs.existsSync(dir)) {
@@ -407,9 +521,23 @@ ipcMain.handle('llm:send', (_event, prompt) => {
   if (activeSessionId) {
     args.push('--resume', activeSessionId);
   }
+  if (currentModel) {
+    args.push('--model', currentModel);
+  }
   args.push(prompt);
 
-  const proc = spawn('omp', args, { cwd });
+  const env = { ...process.env };
+  const keys = loadApiKeys();
+  for (const [provider, key] of Object.entries(keys)) {
+    const varName = PROVIDER_ENV[provider];
+    if (varName && key === '__forgotten__') {
+      env[varName] = '';
+    } else if (varName && key && !env[varName]) {
+      env[varName] = key;
+    }
+  }
+
+  const proc = spawn('omp', args, { cwd, env });
   let buf = '';
   let resolved = false;
   let responseTextBuf = '';
@@ -481,7 +609,7 @@ ipcMain.handle('llm:send', (_event, prompt) => {
         const ev = JSON.parse(line);
         if (ev.type === 'session' && ev.id && !activeSessionId) {
           activeSessionId = ev.id;
-          mainWindow.webContents.send('llm:session', ev.id);
+          mainWindow.webContents.send('llm:session', ev.id, ev.model || '');
         }
         if (ev.type === 'message_update') {
           const inner = ev.assistantMessageEvent;

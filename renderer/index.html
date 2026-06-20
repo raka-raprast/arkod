@@ -34,23 +34,8 @@
         </div>
       </div>
       <div id="sidebar-git" class="sidebar-panel">
-        <div id="sidebar-header">
-          <span>Git</span>
-        </div>
-        <div class="panel-placeholder">
-          <p>Git integration coming soon.</p>
-        </div>
       </div>
       <div id="sidebar-settings" class="sidebar-panel">
-        <div id="sidebar-header">
-          <span>Settings</span>
-        </div>
-        <div class="settings-content">
-          <div class="settings-section">
-            <div class="settings-label">Sessions</div>
-            <button id="delete-all-sessions-btn" class="settings-btn danger">Delete All Sessions</button>
-          </div>
-        </div>
       </div>
     </div>
     <div class="sash sash-vertical" id="sash-sidebar"></div>
@@ -62,17 +47,51 @@
         <button id="term-toggle" title="Toggle terminal (Ctrl+`)">Term</button>
       </div>
       <div id="content-area">
-        <div id="response"></div>
-        <div id="editor-panel">
-          <div id="editor-header">
-            <span id="editor-file-name"></span>
-            <span id="editor-lang-status"></span>
-            <button id="editor-close-btn" title="Close editor">x</button>
+        <div id="view-chats" class="main-view active">
+          <div id="response"></div>
+          <div id="editor-panel">
+            <div id="editor-header">
+              <span id="editor-file-name"></span>
+              <span id="editor-lang-status"></span>
+              <button id="editor-close-btn" title="Close editor">x</button>
+            </div>
+            <div id="editor"></div>
+            <div id="editor-statusbar">
+              <span id="editor-lang-label"></span>
+              <span id="editor-position"></span>
+            </div>
           </div>
-          <div id="editor"></div>
-          <div id="editor-statusbar">
-            <span id="editor-lang-label"></span>
-            <span id="editor-position"></span>
+        </div>
+        <div id="view-git" class="main-view">
+          <div class="panel-placeholder" style="height:100%;display:flex;align-items:center;justify-content:center">
+            <p>Git integration coming soon.</p>
+          </div>
+        </div>
+        <div id="view-settings" class="main-view">
+          <div class="settings-content" style="max-width:480px;margin:0 auto;padding:16px">
+            <div class="settings-section">
+              <div class="settings-label">Model</div>
+              <span id="settings-model" style="font-size:12px;color:#ccc;font-family:monospace"></span>
+            </div>
+            <div class="settings-section" style="margin-top:16px">
+              <div class="settings-label">Providers</div>
+              <div id="auth-list"></div>
+              <div id="auth-form" style="display:none;margin-top:8px">
+                <select id="auth-provider" style="width:100%;padding:4px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:3px;font-size:11px;margin-bottom:4px">
+                  <option value="">Select provider...</option>
+                </select>
+                <input id="auth-key" type="password" placeholder="API key" style="width:100%;padding:4px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:3px;font-size:11px;margin-bottom:4px;box-sizing:border-box" />
+                <div style="display:flex;gap:4px">
+                  <button id="auth-save-btn" class="settings-btn">Save</button>
+                  <button id="auth-cancel-btn" class="settings-btn" style="background:#444">Cancel</button>
+                </div>
+              </div>
+              <button id="add-auth-btn" class="settings-btn" style="margin-top:8px">+ Connect provider</button>
+            </div>
+            <div class="settings-section" style="margin-top:16px">
+              <div class="settings-label">Sessions</div>
+              <button id="delete-all-sessions-btn" class="settings-btn danger">Delete All Sessions</button>
+            </div>
           </div>
         </div>
       </div>
@@ -92,6 +111,7 @@
           </div>
         </div>
         <div id="token-bar">
+          <span id="model-info"></span>
           <span id="token-info"></span>
         </div>
       </div>

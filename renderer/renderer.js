@@ -13,6 +13,7 @@ const editorPosition = document.getElementById('editor-position');
 const fileTreeEl = document.getElementById('file-tree');
 const openFileBtn = document.getElementById('open-file-btn');
 const tokenInfoEl = document.getElementById('token-info');
+const modelInfoEl = document.getElementById('model-info');
 const sidebarEl = document.getElementById('sidebar');
 const sashSidebar = document.getElementById('sash-sidebar');
 const sashTerminal = document.getElementById('sash-terminal');
@@ -27,6 +28,13 @@ const confirmMessage = confirmOverlay ? confirmOverlay.querySelector('.confirm-m
 const confirmCancel = confirmOverlay ? confirmOverlay.querySelector('.confirm-cancel') : null;
 const confirmOk = confirmOverlay ? confirmOverlay.querySelector('.confirm-ok') : null;
 const deleteAllBtn = document.getElementById('delete-all-sessions-btn');
+const authListEl = document.getElementById('auth-list');
+const authFormEl = document.getElementById('auth-form');
+const authProviderEl = document.getElementById('auth-provider');
+const authKeyEl = document.getElementById('auth-key');
+const addAuthBtn = document.getElementById('add-auth-btn');
+const authSaveBtn = document.getElementById('auth-save-btn');
+const authCancelBtn = document.getElementById('auth-cancel-btn');
 
 let sidebarVisible = true;
 let terminalVisible = false;
@@ -181,10 +189,33 @@ function switchSidebarTab(tabName) {
   const panel = document.getElementById(`sidebar-${tabName}`);
   if (panel) panel.classList.add('active');
 
+  document.querySelectorAll('.main-view').forEach(v => v.classList.remove('active'));
+  const view = document.getElementById(`view-${tabName}`);
+  if (view) view.classList.add('active');
+
   if (tabName === 'chats') {
     sashInner.classList.add('visible');
+    sidebarEl.classList.remove('collapsed');
+    sidebarEl.style.width = '220px';
+    sashSidebar.classList.add('visible');
+    const inputArea = document.getElementById('input-area');
+    if (inputArea) inputArea.style.display = '';
+    if (cwdBarEl) cwdBarEl.style.display = '';
   } else {
     sashInner.classList.remove('visible');
+    sidebarEl.classList.add('collapsed');
+    sidebarEl.style.width = '0px';
+    sashSidebar.classList.remove('visible');
+    const inputArea = document.getElementById('input-area');
+    if (inputArea) inputArea.style.display = 'none';
+    if (cwdBarEl) cwdBarEl.style.display = 'none';
+    if (tabName === 'settings') {
+      if (addAuthBtn) addAuthBtn.style.display = '';
+      if (authFormEl) authFormEl.style.display = 'none';
+      refreshAuthList();
+      const settingsModelEl = document.getElementById('settings-model');
+      if (settingsModelEl && modelInfoEl) settingsModelEl.textContent = modelInfoEl.textContent;
+    }
   }
 }
 
@@ -1077,15 +1108,253 @@ if (deleteAllBtn) {
   });
 }
 
+const PROVIDERS = [
+  'anthropic', 'openai', 'zai', 'openrouter', 'github-copilot', 'cursor',
+  'google-antigravity', 'google-gemini-cli', 'xai', 'gitlab',
+  'deepseek', 'moonshot', 'cerebras', 'fireworks', 'together',
+  'nvidia', 'huggingface', 'perplexity', 'qianfan',
+  'groq', 'mistral', 'azure', 'minimax',
+  'opencode-go', 'opencode-zen',
+  'vercel', 'cloudflare', 'kilo', 'zenmux',
+  'ollama', 'ollama-cloud', 'lmstudio', 'vllm',
+  'tavily', 'kagi', 'parallel',
+];
+
+async function refreshAuthList() {
+  if (!authListEl) return new Set();
+  const [keys, models] = await Promise.all([window.api.listAuth(), window.api.listModels()]);
+  const connected = new Set(models.map(m => m.provider));
+  authListEl.innerHTML = '';
+  if (connected.size === 0) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'font-size:11px;color:#666;padding:4px 0';
+    empty.textContent = 'No providers connected.';
+    authListEl.appendChild(empty);
+  } else {
+    for (const provider of [...connected].sort()) {
+      const savedKey = keys[provider];
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:6px 8px;font-size:11px;color:#ccc;border-radius:3px';
+      row.addEventListener('mouseenter', () => { row.style.background = '#2a2d2e'; });
+      row.addEventListener('mouseleave', () => { row.style.background = ''; });
+
+      const left = document.createElement('span');
+      left.style.cssText = 'display:flex;align-items:center;gap:6px';
+      const dot = document.createElement('span');
+      dot.style.cssText = 'display:inline-block;width:6px;height:6px;border-radius:50%;background:#4ec94e;flex-shrink:0';
+      left.appendChild(dot);
+      left.appendChild(document.createTextNode(provider));
+
+      const right = document.createElement('span');
+      right.style.cssText = 'display:flex;align-items:center;gap:8px';
+      const status = document.createElement('span');
+      status.textContent = savedKey ? (savedKey.slice(0, 6) + '...' + savedKey.slice(-4)) : 'connected';
+      status.style.cssText = 'color:#888;font-family:monospace;font-size:10px';
+      const forgetBtn = document.createElement('button');
+      forgetBtn.textContent = '×';
+      forgetBtn.style.cssText = 'background:none;border:none;color:#555;cursor:pointer;font-size:14px;padding:0 2px;line-height:1';
+      forgetBtn.title = 'Forget this provider';
+      forgetBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await window.api.forgetAuth(provider);
+        refreshAuthList();
+      });
+      right.appendChild(status);
+      right.appendChild(forgetBtn);
+
+      row.appendChild(left);
+      row.appendChild(right);
+      authListEl.appendChild(row);
+    }
+  }
+  authProviderEl.innerHTML = '<option value="">Select provider...</option>';
+  for (const p of PROVIDERS) {
+    if (!connected.has(p)) {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = p;
+      authProviderEl.appendChild(opt);
+    }
+  }
+  return connected;
+}
+
+function showProviderPicker(connected, onSelect) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.3)';
+  overlay.addEventListener('click', () => overlay.remove());
+
+  const picker = document.createElement('div');
+  picker.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#252526;border:1px solid #454545;border-radius:8px;padding:8px;z-index:1000;max-height:360px;width:300px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.5)';
+  picker.addEventListener('click', (e) => e.stopPropagation());
+
+  const search = document.createElement('input');
+  search.type = 'text';
+  search.placeholder = 'Search provider...';
+  search.style.cssText = 'width:100%;padding:6px 8px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:4px;font-size:12px;outline:none;margin-bottom:8px;flex-shrink:0';
+  picker.appendChild(search);
+
+  const list = document.createElement('div');
+  list.style.cssText = 'overflow-y:auto;flex:1;min-height:0';
+  picker.appendChild(list);
+
+  const available = PROVIDERS.filter(p => !(connected && connected.has(p)));
+
+  const render = (f) => {
+    list.innerHTML = '';
+    const q = (f || '').toLowerCase();
+    for (const p of available) {
+      if (q && !p.toLowerCase().includes(q)) continue;
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:6px 8px;cursor:pointer;font-size:12px;color:#ccc;border-radius:3px';
+      row.textContent = p;
+      row.addEventListener('mouseenter', () => { row.style.background = '#2a2d2e'; });
+      row.addEventListener('mouseleave', () => { row.style.background = ''; });
+      row.addEventListener('click', () => { overlay.remove(); onSelect(p); });
+      list.appendChild(row);
+    }
+  };
+  search.addEventListener('input', () => render(search.value));
+  render('');
+
+  overlay.appendChild(picker);
+  document.body.appendChild(overlay);
+  search.focus();
+}
+
+if (addAuthBtn) {
+  addAuthBtn.addEventListener('click', async () => {
+    let connected = new Set();
+    try { connected = await refreshAuthList() || new Set(); } catch (_) {}
+    showProviderPicker(connected, (provider) => {
+      authProviderEl.value = provider;
+      authFormEl.style.display = '';
+      addAuthBtn.style.display = 'none';
+    });
+  });
+}
+
+if (authCancelBtn) {
+  authCancelBtn.addEventListener('click', () => {
+    authFormEl.style.display = 'none';
+    addAuthBtn.style.display = '';
+    authKeyEl.value = '';
+  });
+}
+
+if (authSaveBtn) {
+  authSaveBtn.addEventListener('click', async () => {
+    const p = authProviderEl.value;
+    const k = authKeyEl.value.trim();
+    if (p && k) {
+      await window.api.saveAuth(p, k);
+      authKeyEl.value = '';
+      authFormEl.style.display = 'none';
+      addAuthBtn.style.display = '';
+      refreshAuthList();
+    }
+  });
+}
+
 if (!promptEl || !responseEl) {
   console.error('Missing elements: prompt=', !!promptEl, 'response=', !!responseEl);
 } else {
   responseEl.textContent = 'Arkod ready.\n';
   setTimeout(() => loadSessions(), 0);
 
-  window.api.onSession((id) => {
+  window.api.onSession((id, _model) => {
     activeSessionId = id;
   });
+
+  (async () => {
+    const result = await window.api.getModel();
+    if (result && result.model && modelInfoEl) {
+      const model = result.model;
+      modelInfoEl.textContent = model;
+      modelInfoEl.style.cursor = 'pointer';
+      modelInfoEl.title = 'Click to change model';
+
+      modelInfoEl.addEventListener('click', async () => {
+        const old = modelInfoEl.textContent;
+        const [models, authKeys] = await Promise.all([window.api.listModels(), window.api.listAuth()]);
+        if (!models.length) return;
+
+        const loggedProviders = new Set(Object.keys(authKeys));
+
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.3)';
+        overlay.addEventListener('click', () => overlay.remove());
+
+        const picker = document.createElement('div');
+        picker.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#252526;border:1px solid #454545;border-radius:8px;padding:8px;z-index:1000;max-height:420px;width:380px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.5)';
+        picker.addEventListener('click', (e) => e.stopPropagation());
+
+        const search = document.createElement('input');
+        search.type = 'text';
+        search.placeholder = 'Filter models...';
+        search.style.cssText = 'width:100%;padding:6px 8px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:4px;font-size:12px;outline:none;margin-bottom:8px;flex-shrink:0';
+        picker.appendChild(search);
+
+        const list = document.createElement('div');
+        list.style.cssText = 'overflow-y:auto;flex:1;min-height:0';
+        picker.appendChild(list);
+
+        const renderList = (filter) => {
+          list.innerHTML = '';
+          const f = (filter || '').toLowerCase();
+          const filtered = models.filter(m => m.selector.toLowerCase().includes(f) || m.name.toLowerCase().includes(f) || m.provider.toLowerCase().includes(f));
+          let lastProvider = '';
+          for (const m of filtered) {
+            if (m.provider !== lastProvider) {
+              const hdr = document.createElement('div');
+              hdr.style.cssText = 'padding:4px 8px;font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;display:flex;align-items:center;gap:4px';
+              const dot = document.createElement('span');
+              dot.style.cssText = `display:inline-block;width:6px;height:6px;border-radius:50%;background:${loggedProviders.has(m.provider) ? '#4ec94e' : '#555'}`;
+              hdr.appendChild(dot);
+              hdr.appendChild(document.createTextNode(m.provider));
+              list.appendChild(hdr);
+              lastProvider = m.provider;
+            }
+            const row = document.createElement('div');
+            row.style.cssText = 'padding:5px 8px 5px 16px;cursor:pointer;font-size:12px;color:#ccc;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+            row.textContent = m.name;
+            row.title = m.selector + (m.contextWindow ? ' · ' + (m.contextWindow / 1000) + 'k ctx' : '');
+            if (m.selector === old) row.style.cssText += ';background:#094771';
+            row.addEventListener('mouseenter', () => { if (m.selector !== old) row.style.background = '#2a2d2e'; });
+            row.addEventListener('mouseleave', () => { if (m.selector !== old) row.style.background = ''; });
+            row.addEventListener('click', async () => {
+              await window.api.setModel(m.selector);
+              modelInfoEl.textContent = m.selector;
+              overlay.remove();
+            });
+            list.appendChild(row);
+          }
+
+          const sep = document.createElement('div');
+          sep.style.cssText = 'margin:6px 0;border-top:1px solid #454545';
+          list.appendChild(sep);
+
+          const loginRow = document.createElement('div');
+          loginRow.style.cssText = 'padding:5px 8px;cursor:pointer;font-size:12px;color:#569cd6;border-radius:3px';
+          loginRow.textContent = '+ Login to provider...';
+          loginRow.addEventListener('mouseenter', () => { loginRow.style.background = '#2a2d2e'; });
+          loginRow.addEventListener('mouseleave', () => { loginRow.style.background = ''; });
+          loginRow.addEventListener('click', () => {
+            overlay.remove();
+            switchSidebarTab('settings');
+          });
+          list.appendChild(loginRow);
+        };
+
+        search.addEventListener('input', () => renderList(search.value));
+        renderList('');
+
+        overlay.appendChild(picker);
+        document.body.appendChild(overlay);
+        search.focus();
+      });
+    }
+  })();
 
   window.api.onThinkingReset((_ts) => {
     stopThinking();
