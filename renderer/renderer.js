@@ -1294,6 +1294,7 @@ if (!promptEl || !responseEl) {
 
   window.api.onSession((id, _model) => {
     activeSessionId = id;
+    loadSessions();
   });
 
   window.api.onTitleGenerated((_title) => {

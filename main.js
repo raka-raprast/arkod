@@ -772,6 +772,7 @@ ipcMain.handle('llm:send', (_event, prompt) => {
         if (ev.type === 'session' && ev.id && !activeSessionId) {
           activeSessionId = ev.id;
           sessionJustCreated = true;
+          appendToSessionFile(activeSessionId, { type: 'session_start', timestamp: Date.now() });
           mainWindow.webContents.send('llm:session', ev.id, ev.model || '');
         }
         if (ev.type === 'message_update') {
