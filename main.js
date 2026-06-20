@@ -579,7 +579,7 @@ function appendToSessionFile(sessionId, event) {
 
 function generateSessionTitle(sessionId, firstPrompt) {
   const titlePrompt = 'Generate a very short title (3-6 words, no quotes, no punctuation) for a chat session that starts with: "' + firstPrompt + '"';
-  const args = ['-p', '--mode', 'text'];
+  const args = ['-p', '--mode', 'text', '--no-session'];
   if (currentModel) args.push('--model', currentModel);
   args.push(titlePrompt);
 
