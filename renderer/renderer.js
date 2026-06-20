@@ -858,7 +858,7 @@ async function loadSessions() {
         input.type = 'text';
         input.className = 'session-title-edit';
         input.value = s.title;
-        input.style.cssText = 'width:100%;background:#3c3c3c;border:1px solid #007acc;color:#fff;font-size:12px;padding:2px 4px;outline:none;border-radius:2px;';
+        input.style.cssText = 'width:100%;background:#1c1a2e;border:1px solid #6366f1;color:#f8fafc;font-size:12px;padding:2px 4px;outline:none;border-radius:2px;';
         body.replaceChild(input, titleSpan);
         input.focus();
         input.select();
@@ -1266,21 +1266,21 @@ async function refreshAuthList() {
   authListEl.innerHTML = '';
   if (connected.size === 0) {
     const empty = document.createElement('div');
-    empty.style.cssText = 'font-size:11px;color:#666;padding:4px 0';
+    empty.style.cssText = 'font-size:11px;color:#64748b;padding:4px 0';
     empty.textContent = 'No providers connected.';
     authListEl.appendChild(empty);
   } else {
     for (const provider of [...connected].sort()) {
       const savedKey = keys[provider];
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:6px 8px;font-size:11px;color:#ccc;border-radius:3px';
-      row.addEventListener('mouseenter', () => { row.style.background = '#2a2d2e'; });
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:6px 8px;font-size:11px;color:#cbd5e1;border-radius:3px';
+      row.addEventListener('mouseenter', () => { row.style.background = '#1a1829'; });
       row.addEventListener('mouseleave', () => { row.style.background = ''; });
 
       const left = document.createElement('span');
       left.style.cssText = 'display:flex;align-items:center;gap:6px';
       const dot = document.createElement('span');
-      dot.style.cssText = 'display:inline-block;width:6px;height:6px;border-radius:50%;background:#4ec94e;flex-shrink:0';
+      dot.style.cssText = 'display:inline-block;width:6px;height:6px;border-radius:50%;background:#34d399;flex-shrink:0';
       left.appendChild(dot);
       left.appendChild(document.createTextNode(provider));
 
@@ -1288,10 +1288,10 @@ async function refreshAuthList() {
       right.style.cssText = 'display:flex;align-items:center;gap:8px';
       const status = document.createElement('span');
       status.textContent = savedKey ? (savedKey.slice(0, 6) + '...' + savedKey.slice(-4)) : 'connected';
-      status.style.cssText = 'color:#888;font-family:monospace;font-size:10px';
+      status.style.cssText = 'color:#94a3b8;font-family:monospace;font-size:10px';
       const forgetBtn = document.createElement('button');
       forgetBtn.textContent = '×';
-      forgetBtn.style.cssText = 'background:none;border:none;color:#555;cursor:pointer;font-size:14px;padding:0 2px;line-height:1';
+      forgetBtn.style.cssText = 'background:none;border:none;color:#252536;cursor:pointer;font-size:14px;padding:0 2px;line-height:1';
       forgetBtn.title = 'Forget this provider';
       forgetBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -1324,13 +1324,13 @@ function showProviderPicker(connected, onSelect) {
   overlay.addEventListener('click', () => overlay.remove());
 
   const picker = document.createElement('div');
-  picker.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#252526;border:1px solid #454545;border-radius:8px;padding:8px;z-index:1000;max-height:360px;width:300px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.5)';
+  picker.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#12101f;border:1px solid #2a2a3e;border-radius:8px;padding:8px;z-index:1000;max-height:360px;width:300px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.5)';
   picker.addEventListener('click', (e) => e.stopPropagation());
 
   const search = document.createElement('input');
   search.type = 'text';
   search.placeholder = 'Search provider...';
-  search.style.cssText = 'width:100%;padding:6px 8px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:4px;font-size:12px;outline:none;margin-bottom:8px;flex-shrink:0';
+  search.style.cssText = 'width:100%;padding:6px 8px;background:#1c1a2e;color:#cbd5e1;border:1px solid #252536;border-radius:4px;font-size:12px;outline:none;margin-bottom:8px;flex-shrink:0';
   picker.appendChild(search);
 
   const list = document.createElement('div');
@@ -1345,9 +1345,9 @@ function showProviderPicker(connected, onSelect) {
     for (const p of available) {
       if (q && !p.toLowerCase().includes(q)) continue;
       const row = document.createElement('div');
-      row.style.cssText = 'padding:6px 8px;cursor:pointer;font-size:12px;color:#ccc;border-radius:3px';
+      row.style.cssText = 'padding:6px 8px;cursor:pointer;font-size:12px;color:#cbd5e1;border-radius:3px';
       row.textContent = p;
-      row.addEventListener('mouseenter', () => { row.style.background = '#2a2d2e'; });
+      row.addEventListener('mouseenter', () => { row.style.background = '#1a1829'; });
       row.addEventListener('mouseleave', () => { row.style.background = ''; });
       row.addEventListener('click', () => { overlay.remove(); onSelect(p); });
       list.appendChild(row);
@@ -1430,13 +1430,13 @@ if (!promptEl || !responseEl) {
         overlay.addEventListener('click', () => overlay.remove());
 
         const picker = document.createElement('div');
-        picker.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#252526;border:1px solid #454545;border-radius:8px;padding:8px;z-index:1000;max-height:420px;width:380px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.5)';
+        picker.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#12101f;border:1px solid #2a2a3e;border-radius:8px;padding:8px;z-index:1000;max-height:420px;width:380px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.5)';
         picker.addEventListener('click', (e) => e.stopPropagation());
 
         const search = document.createElement('input');
         search.type = 'text';
         search.placeholder = 'Filter models...';
-        search.style.cssText = 'width:100%;padding:6px 8px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:4px;font-size:12px;outline:none;margin-bottom:8px;flex-shrink:0';
+        search.style.cssText = 'width:100%;padding:6px 8px;background:#1c1a2e;color:#cbd5e1;border:1px solid #252536;border-radius:4px;font-size:12px;outline:none;margin-bottom:8px;flex-shrink:0';
         picker.appendChild(search);
 
         const list = document.createElement('div');
@@ -1451,20 +1451,20 @@ if (!promptEl || !responseEl) {
           for (const m of filtered) {
             if (m.provider !== lastProvider) {
               const hdr = document.createElement('div');
-              hdr.style.cssText = 'padding:4px 8px;font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;display:flex;align-items:center;gap:4px';
+              hdr.style.cssText = 'padding:4px 8px;font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;display:flex;align-items:center;gap:4px';
               const dot = document.createElement('span');
-              dot.style.cssText = `display:inline-block;width:6px;height:6px;border-radius:50%;background:${loggedProviders.has(m.provider) ? '#4ec94e' : '#555'}`;
+              dot.style.cssText = `display:inline-block;width:6px;height:6px;border-radius:50%;background:${loggedProviders.has(m.provider) ? '#34d399' : '#252536'}`;
               hdr.appendChild(dot);
               hdr.appendChild(document.createTextNode(m.provider));
               list.appendChild(hdr);
               lastProvider = m.provider;
             }
             const row = document.createElement('div');
-            row.style.cssText = 'padding:5px 8px 5px 16px;cursor:pointer;font-size:12px;color:#ccc;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+            row.style.cssText = 'padding:5px 8px 5px 16px;cursor:pointer;font-size:12px;color:#cbd5e1;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
             row.textContent = m.name;
             row.title = m.selector + (m.contextWindow ? ' · ' + (m.contextWindow / 1000) + 'k ctx' : '');
-            if (m.selector === old) row.style.cssText += ';background:#094771';
-            row.addEventListener('mouseenter', () => { if (m.selector !== old) row.style.background = '#2a2d2e'; });
+            if (m.selector === old) row.style.cssText += ';background:#0b0b1f';
+            row.addEventListener('mouseenter', () => { if (m.selector !== old) row.style.background = '#1a1829'; });
             row.addEventListener('mouseleave', () => { if (m.selector !== old) row.style.background = ''; });
             row.addEventListener('click', async () => {
               await window.api.setModel(m.selector);
@@ -1475,13 +1475,13 @@ if (!promptEl || !responseEl) {
           }
 
           const sep = document.createElement('div');
-          sep.style.cssText = 'margin:6px 0;border-top:1px solid #454545';
+          sep.style.cssText = 'margin:6px 0;border-top:1px solid #2a2a3e';
           list.appendChild(sep);
 
           const loginRow = document.createElement('div');
-          loginRow.style.cssText = 'padding:5px 8px;cursor:pointer;font-size:12px;color:#569cd6;border-radius:3px';
+          loginRow.style.cssText = 'padding:5px 8px;cursor:pointer;font-size:12px;color:#a5b4fc;border-radius:3px';
           loginRow.textContent = '+ Login to provider...';
-          loginRow.addEventListener('mouseenter', () => { loginRow.style.background = '#2a2d2e'; });
+          loginRow.addEventListener('mouseenter', () => { loginRow.style.background = '#1a1829'; });
           loginRow.addEventListener('mouseleave', () => { loginRow.style.background = ''; });
           loginRow.addEventListener('click', () => {
             overlay.remove();
@@ -1796,11 +1796,11 @@ async function gitActionOnBranch(action, actionLabel) {
   overlay.addEventListener('click', () => overlay.remove());
 
   const picker = document.createElement('div');
-  picker.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#252526;border:1px solid #454545;border-radius:8px;padding:8px;z-index:1000;max-height:360px;width:280px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.5)';
+  picker.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#12101f;border:1px solid #2a2a3e;border-radius:8px;padding:8px;z-index:1000;max-height:360px;width:280px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.5)';
   picker.addEventListener('click', (e) => e.stopPropagation());
 
   const title = document.createElement('div');
-  title.style.cssText = 'padding:4px 8px;font-size:11px;color:#888;text-transform:uppercase;margin-bottom:4px';
+  title.style.cssText = 'padding:4px 8px;font-size:11px;color:#94a3b8;text-transform:uppercase;margin-bottom:4px';
   title.textContent = actionLabel + ' onto branch:';
   picker.appendChild(title);
 
@@ -1810,9 +1810,9 @@ async function gitActionOnBranch(action, actionLabel) {
 
   for (const b of branches) {
     const row = document.createElement('div');
-    row.style.cssText = 'padding:5px 8px;cursor:pointer;font-size:12px;color:#ccc;border-radius:3px';
+    row.style.cssText = 'padding:5px 8px;cursor:pointer;font-size:12px;color:#cbd5e1;border-radius:3px';
     row.textContent = b.name;
-    row.addEventListener('mouseenter', () => { row.style.background = '#2a2d2e'; });
+    row.addEventListener('mouseenter', () => { row.style.background = '#1a1829'; });
     row.addEventListener('mouseleave', () => { row.style.background = ''; });
     row.addEventListener('click', async () => {
       overlay.remove();
@@ -2100,17 +2100,17 @@ function showCreateBranchModal(baseBranch) {
   overlay.addEventListener('click', () => overlay.remove());
 
   const box = document.createElement('div');
-  box.style.cssText = 'background:#252526;border:1px solid #454545;border-radius:8px;padding:16px;min-width:300px;box-shadow:0 8px 32px rgba(0,0,0,0.5)';
+  box.style.cssText = 'background:#12101f;border:1px solid #2a2a3e;border-radius:8px;padding:16px;min-width:300px;box-shadow:0 8px 32px rgba(0,0,0,0.5)';
   box.addEventListener('click', (e) => e.stopPropagation());
 
   const label = document.createElement('div');
-  label.style.cssText = 'font-size:12px;color:#ccc;margin-bottom:10px';
+  label.style.cssText = 'font-size:12px;color:#cbd5e1;margin-bottom:10px';
   label.textContent = `Create new branch from "${baseBranch}"`;
   box.appendChild(label);
 
   const input = document.createElement('input');
   input.type = 'text';
-  input.style.cssText = 'width:100%;padding:6px 8px;background:#3c3c3c;color:#fff;border:1px solid #555;border-radius:4px;font-size:12px;outline:none;margin-bottom:12px;box-sizing:border-box';
+  input.style.cssText = 'width:100%;padding:6px 8px;background:#1c1a2e;color:#f8fafc;border:1px solid #252536;border-radius:4px;font-size:12px;outline:none;margin-bottom:12px;box-sizing:border-box';
   input.placeholder = 'New branch name';
   box.appendChild(input);
 
@@ -2119,12 +2119,12 @@ function showCreateBranchModal(baseBranch) {
 
   const cancelBtn = document.createElement('button');
   cancelBtn.textContent = 'Cancel';
-  cancelBtn.style.cssText = 'background:#444;color:#ccc;border:1px solid #555;padding:5px 14px;border-radius:3px;cursor:pointer;font-size:12px';
+  cancelBtn.style.cssText = 'background:#2d2d40;color:#cbd5e1;border:1px solid #252536;padding:5px 14px;border-radius:3px;cursor:pointer;font-size:12px';
   cancelBtn.addEventListener('click', () => overlay.remove());
 
   const createBtn = document.createElement('button');
   createBtn.textContent = 'Create';
-  createBtn.style.cssText = 'background:#0e639c;color:#fff;border:none;padding:5px 14px;border-radius:3px;cursor:pointer;font-size:12px';
+  createBtn.style.cssText = 'background:#6366f1;color:#f8fafc;border:none;padding:5px 14px;border-radius:3px;cursor:pointer;font-size:12px';
   createBtn.addEventListener('click', async () => {
     const name = input.value.trim();
     if (!name) return;
@@ -2234,7 +2234,7 @@ async function renderStashes() {
   }
 }
 
-const GRAPH_COLORS = ['#f0a050', '#4ec94e', '#569cd6', '#c586c0', '#4fc1ff', '#d4d4d4', '#f44747', '#dcdcaa', '#e2b714', '#ce9178'];
+const GRAPH_COLORS = ['#f59e0b', '#34d399', '#818cf8', '#c084fc', '#22d3ee', '#cbd5e1', '#f87171', '#a78bfa', '#fbbf24', '#fb7185'];
 const GRAPH_ROW = 24;
 const GRAPH_LANE = 18;
 const GRAPH_DOT = 4;
@@ -2411,7 +2411,7 @@ async function renderGraph() {
     circle.setAttribute('cy', cy);
     circle.setAttribute('r', GRAPH_DOT);
     circle.setAttribute('fill', color);
-    circle.setAttribute('stroke', '#1e1e1e');
+    circle.setAttribute('stroke', '#08080f');
     circle.setAttribute('stroke-width', '1.5');
     svg.appendChild(circle);
   }
@@ -2437,7 +2437,7 @@ async function renderGraph() {
         const tag = document.createElement('span');
         tag.className = 'git-graph-tag';
         tag.textContent = ref;
-        tag.style.cssText = `background:${color};color:#1e1e1e;padding:0 4px;border-radius:3px;font-size:10px;margin-right:4px`;
+        tag.style.cssText = `background:${color};color:#08080f;padding:0 4px;border-radius:3px;font-size:10px;margin-right:4px`;
         refsSpan.appendChild(tag);
       }
     }
@@ -2524,10 +2524,10 @@ async function renderGraph() {
       const parents = c.parents.length > 0 ? c.parents.map(p => p.slice(0, 7)).join(', ') : '(root)';
       const fullDate = formatDate(c.timestamp);
       tip.innerHTML =
-        `<div class="git-tip-hash">${c.shortHash}<span style="color:#666;margin-left:8px">${c.hash.slice(0, 7)}</span></div>` +
+        `<div class="git-tip-hash">${c.shortHash}<span style="color:#64748b;margin-left:8px">${c.hash.slice(0, 7)}</span></div>` +
         `<div class="git-tip-row"><span class="git-tip-label">Parents</span> ${parents}</div>` +
         `<div class="git-tip-row"><span class="git-tip-label">Author</span> ${c.author}</div>` +
-        `<div class="git-tip-row"><span class="git-tip-label">Date</span> ${fullDate} <span style="color:#666">(${relativeTime(c.timestamp)})</span></div>` +
+        `<div class="git-tip-row"><span class="git-tip-label">Date</span> ${fullDate} <span style="color:#64748b">(${relativeTime(c.timestamp)})</span></div>` +
         (c.refs.length ? `<div class="git-tip-row"><span class="git-tip-label">Refs</span> ${c.refs.join(', ')}</div>` : '') +
         `<div class="git-tip-msg">${c.message}</div>`;
       tip.style.display = 'block';
@@ -2590,7 +2590,7 @@ async function createTerminalTab() {
   });
   termTabsEl.appendChild(tabEl);
 
-  const term = new Terminal({ theme: { background: '#000000', foreground: '#d4d4d4' }, fontSize: 13, fontFamily: "'SF Mono', Monaco, Menlo, monospace" });
+  const term = new Terminal({ theme: { background: '#0a0a18', foreground: '#e2e8f0' }, fontSize: 13, fontFamily: "'SF Mono', Monaco, Menlo, monospace" });
   const fitAddon = new FitAddon.FitAddon();
   term.loadAddon(fitAddon);
 
@@ -2712,7 +2712,7 @@ async function doSearch() {
   });
   if (results.length === 0) {
     const empty = document.createElement('div');
-    empty.style.cssText = 'padding:12px;font-size:12px;color:#666;text-align:center';
+    empty.style.cssText = 'padding:12px;font-size:12px;color:#64748b;text-align:center';
     empty.textContent = 'No results found.';
     searchResults.appendChild(empty);
     return;
@@ -2720,7 +2720,7 @@ async function doSearch() {
 
   const totalMatches = results.reduce((sum, f) => sum + f.matches.length, 0);
   const summary = document.createElement('div');
-  summary.style.cssText = 'padding:8px 12px;font-size:11px;color:#888;border-bottom:1px solid #333';
+  summary.style.cssText = 'padding:8px 12px;font-size:11px;color:#94a3b8;border-bottom:1px solid #252536';
   summary.textContent = `${totalMatches} results in ${results.length} files`;
   searchResults.appendChild(summary);
 
@@ -2821,13 +2821,13 @@ async function showQuickOpen() {
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
 
   const box = document.createElement('div');
-  box.style.cssText = 'background:#252526;border:1px solid #454545;border-radius:8px;width:520px;max-height:420px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.6)';
+  box.style.cssText = 'background:#12101f;border:1px solid #2a2a3e;border-radius:8px;width:520px;max-height:420px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.6)';
   box.addEventListener('click', (e) => e.stopPropagation());
 
   const input = document.createElement('input');
   input.type = 'text';
   input.id = 'quick-open-input';
-  input.style.cssText = 'width:100%;padding:10px 12px;background:transparent;color:#ccc;border:none;border-bottom:1px solid #333;font-size:14px;outline:none;font-family:inherit;border-radius:8px 8px 0 0';
+  input.style.cssText = 'width:100%;padding:10px 12px;background:transparent;color:#cbd5e1;border:none;border-bottom:1px solid #252536;font-size:14px;outline:none;font-family:inherit;border-radius:8px 8px 0 0';
   input.placeholder = 'Search files by name...';
   box.appendChild(input);
 
@@ -2851,7 +2851,7 @@ async function showQuickOpen() {
     }
     if (results.length === 0) {
       const empty = document.createElement('div');
-      empty.style.cssText = 'padding:8px 12px;font-size:12px;color:#666';
+      empty.style.cssText = 'padding:8px 12px;font-size:12px;color:#64748b';
       empty.textContent = 'No matching files.';
       list.appendChild(empty);
       return;
@@ -2859,7 +2859,7 @@ async function showQuickOpen() {
     for (let i = 0; i < results.length; i++) {
       const f = results[i];
       const row = document.createElement('div');
-      row.style.cssText = 'padding:4px 12px;font-size:12px;color:#ccc;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:8px';
+      row.style.cssText = 'padding:4px 12px;font-size:12px;color:#cbd5e1;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:8px';
       row.dataset.path = f;
       const name = f.split('/').pop();
       const dir = f.substring(0, f.length - name.length);
@@ -2869,7 +2869,7 @@ async function showQuickOpen() {
       row.appendChild(nameSpan);
       const dirSpan = document.createElement('span');
       dirSpan.textContent = dir;
-      dirSpan.style.cssText = 'color:#666;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      dirSpan.style.cssText = 'color:#64748b;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
       row.appendChild(dirSpan);
       row.addEventListener('click', () => {
         overlay.remove();

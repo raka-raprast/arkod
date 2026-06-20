@@ -1,101 +1,141 @@
 :root {
-  --bg: #1e1e1e;
-  --bg-sidebar: #252526;
-  --bg-panel: #2d2d2d;
-  --bg-input: #3c3c3c;
-  --bg-hover: #2a2d2e;
-  --bg-active: #37373d;
-  --bg-accent: #094771;
-  --bg-terminal: #000;
-  --text: #d4d4d4;
-  --text-light: #ccc;
-  --text-muted: #999;
-  --text-dim: #666;
-  --text-bright: #fff;
-  --border: #333;
-  --border-light: #555;
-  --border-accent: #007acc;
-  --accent: #007acc;
-  --accent-bg: #0e639c;
-  --accent-hover: #1177bb;
-  --accent-text: #569cd6;
-  --error: #f44747;
-  --error-bg: #3a1a1a;
-  --error-border: #5a2a2a;
-  --success: #4ec94e;
-  --success-bg: #1a3a1a;
-  --success-border: #2a5a2a;
-  --warning: #e2b714;
-  --warning-text: #f0a050;
-  --code-bg: #1a1a1a;
-  --diff-bg: #252525;
-  --diff-removed-text: #f4a4a4;
-  --diff-added-text: #9cdc9c;
-  --diff-border: #2a2a2a;
-  --diff-mod-bg: #3a3a1a;
-  --diff-mod-border: #5a5a2a;
-  --diff-ren-bg: #1a2a3a;
-  --diff-ren-border: #2a3a5a;
-  --prompt-bg: #1a2a3a;
-  --overlay-bg: #252526;
-  --overlay-border: #454545;
-  --danger-bg: #a82020;
-  --danger-bg-hover: #c42020;
-  --danger-hover: #5a1a1a;
-  --stage-border: #3a5a3a;
-  --gradient-1: linear-gradient(135deg, #007acc20, #569cd610);
-  --gradient-2: linear-gradient(135deg, #f0a05020, #e2b71410);
-  --gradient-3: linear-gradient(135deg, #4ec94e20, #569cd610);
+  /* Core background */
+  --bg: #08080f;
+  --bg-gradient: linear-gradient(160deg, #08080f 0%, #0d0b1a 30%, #0a0c1a 60%, #060610 100%);
+  /* Glass surfaces */
+  --glass-bg: rgba(15, 12, 28, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-blur: blur(16px);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  /* Surfaces */
+  --bg-sidebar: rgba(12, 10, 24, 0.75);
+  --bg-panel: rgba(18, 15, 32, 0.6);
+  --bg-input: rgba(20, 17, 38, 0.55);
+  --bg-hover: rgba(99, 102, 241, 0.09);
+  --bg-active: rgba(99, 102, 241, 0.14);
+  --bg-accent: rgba(99, 102, 241, 0.18);
+  --bg-terminal: rgba(4, 2, 12, 0.9);
+  /* Text */
+  --text: #e2e8f0;
+  --text-light: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+  --text-bright: #f8fafc;
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.06);
+  --border-light: rgba(255, 255, 255, 0.1);
+  --border-accent: #6366f1;
+  /* Accent – purple to cyan gradient family */
+  --accent: #818cf8;
+  --accent-bg: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-text: #a5b4fc;
+  --accent-gradient: linear-gradient(135deg, #6366f1, #06b6d4);
+  --accent-gradient-subtle: linear-gradient(135deg, #6366f120, #06b6d410);
+  /* Semantic – vibrant palettes */
+  --error: #f87171;
+  --error-bg: rgba(248, 113, 113, 0.12);
+  --error-border: rgba(248, 113, 113, 0.28);
+  --success: #34d399;
+  --success-bg: rgba(52, 211, 153, 0.12);
+  --success-border: rgba(52, 211, 153, 0.28);
+  --warning: #fbbf24;
+  --warning-text: #f59e0b;
+  --warning-bg: rgba(251, 191, 36, 0.12);
+  --warning-border: rgba(251, 191, 36, 0.28);
+  /* Code / diff */
+  --code-bg: rgba(8, 8, 24, 0.6);
+  --diff-bg: rgba(12, 10, 24, 0.5);
+  --diff-removed-text: #fca5a5;
+  --diff-added-text: #86efac;
+  --diff-border: rgba(255, 255, 255, 0.05);
+  --diff-mod-bg: rgba(251, 191, 36, 0.1);
+  --diff-mod-border: rgba(251, 191, 36, 0.25);
+  --diff-ren-bg: rgba(99, 102, 241, 0.1);
+  --diff-ren-border: rgba(99, 102, 241, 0.25);
+  --prompt-bg: rgba(99, 102, 241, 0.08);
+  /* Overlays */
+  --overlay-bg: rgba(18, 15, 32, 0.85);
+  --overlay-border: rgba(255, 255, 255, 0.08);
+  /* Danger */
+  --danger-bg: #dc2626;
+  --danger-bg-hover: #ef4444;
+  --danger-hover: rgba(248, 113, 113, 0.12);
+  --stage-border: rgba(52, 211, 153, 0.35);
+  /* Gradient accents for section headers */
+  --gradient-1: linear-gradient(135deg, #6366f118, #06b6d40c);
+  --gradient-2: linear-gradient(135deg, #f59e0b18, #fbbf240c);
+  --gradient-3: linear-gradient(135deg, #34d39918, #06b6d40c);
 }
 
 [data-theme="light"] {
-  --bg: #ffffff;
-  --bg-sidebar: #f3f3f3;
-  --bg-panel: #ececec;
-  --bg-input: #ffffff;
-  --bg-hover: #e8e8e8;
-  --bg-active: #d6d6d6;
-  --bg-accent: #d0e4f7;
-  --bg-terminal: #f0f0f0;
-  --text: #333333;
-  --text-light: #444444;
-  --text-muted: #6e6e6e;
-  --text-dim: #999999;
-  --text-bright: #111111;
-  --border: #d4d4d4;
-  --border-light: #bbbbbb;
-  --border-accent: #007acc;
-  --accent: #007acc;
-  --accent-bg: #007acc;
-  --accent-hover: #1a8ad4;
-  --accent-text: #0451a5;
-  --error: #cf222e;
-  --error-bg: #fff0f0;
-  --error-border: #ffc0c0;
-  --success: #1a7f37;
-  --success-bg: #e6ffec;
-  --success-border: #b4e6c0;
-  --warning: #9a6700;
-  --warning-text: #e36209;
-  --code-bg: #f6f8fa;
-  --diff-bg: #f6f8fa;
-  --diff-removed-text: #cf222e;
-  --diff-added-text: #1a7f37;
-  --diff-border: #d0d7de;
-  --diff-mod-bg: #fff8c5;
-  --diff-mod-border: #d4a72c;
-  --diff-ren-bg: #ddf4ff;
-  --diff-ren-border: #54aeff;
-  --prompt-bg: #ddf4ff;
-  --overlay-bg: #ffffff;
-  --overlay-border: #d4d4d4;
-  --danger-bg: #cf222e;
-  --danger-bg-hover: #a40e26;
-  --danger-hover: #ffebe9;
-  --stage-border: #b4e6c0;
-  --gradient-1: linear-gradient(135deg, #007acc10, #0451a505);
-  --gradient-2: linear-gradient(135deg, #e3620910, #9a670005);
-  --gradient-3: linear-gradient(135deg, #1a7f3710, #0451a505);
+  /* Core background */
+  --bg: #f5f3ff;
+  --bg-gradient: linear-gradient(160deg, #f5f3ff 0%, #f0eeff 30%, #f3f4ff 60%, #f8f6ff 100%);
+  /* Glass surfaces */
+  --glass-bg: rgba(255, 255, 255, 0.65);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-blur: blur(16px);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  /* Surfaces */
+  --bg-sidebar: rgba(255, 255, 255, 0.65);
+  --bg-panel: rgba(255, 255, 255, 0.5);
+  --bg-input: rgba(255, 255, 255, 0.75);
+  --bg-hover: rgba(99, 102, 241, 0.07);
+  --bg-active: rgba(99, 102, 241, 0.12);
+  --bg-accent: rgba(99, 102, 241, 0.14);
+  --bg-terminal: rgba(255, 255, 255, 0.9);
+  /* Text */
+  --text: #1e293b;
+  --text-light: #334155;
+  --text-muted: #64748b;
+  --text-dim: #94a3b8;
+  --text-bright: #0f172a;
+  /* Borders */
+  --border: rgba(0, 0, 0, 0.06);
+  --border-light: rgba(0, 0, 0, 0.1);
+  --border-accent: #6366f1;
+  /* Accent – indigo to violet gradient family */
+  --accent: #6366f1;
+  --accent-bg: #4f46e5;
+  --accent-hover: #6366f1;
+  --accent-text: #4338ca;
+  --accent-gradient: linear-gradient(135deg, #6366f1, #8b5cf6);
+  --accent-gradient-subtle: linear-gradient(135deg, #6366f112, #8b5cf608);
+  /* Semantic */
+  --error: #ef4444;
+  --error-bg: rgba(239, 68, 68, 0.08);
+  --error-border: rgba(239, 68, 68, 0.25);
+  --success: #10b981;
+  --success-bg: rgba(16, 185, 129, 0.08);
+  --success-border: rgba(16, 185, 129, 0.25);
+  --warning: #d97706;
+  --warning-text: #ea580c;
+  --warning-bg: rgba(245, 158, 11, 0.08);
+  --warning-border: rgba(245, 158, 11, 0.25);
+  /* Code / diff */
+  --code-bg: rgba(255, 255, 255, 0.5);
+  --diff-bg: rgba(255, 255, 255, 0.3);
+  --diff-removed-text: #dc2626;
+  --diff-added-text: #059669;
+  --diff-border: rgba(0, 0, 0, 0.06);
+  --diff-mod-bg: rgba(245, 158, 11, 0.1);
+  --diff-mod-border: rgba(245, 158, 11, 0.3);
+  --diff-ren-bg: rgba(99, 102, 241, 0.08);
+  --diff-ren-border: rgba(99, 102, 241, 0.25);
+  --prompt-bg: rgba(99, 102, 241, 0.06);
+  /* Overlays */
+  --overlay-bg: rgba(255, 255, 255, 0.85);
+  --overlay-border: rgba(0, 0, 0, 0.08);
+  /* Danger */
+  --danger-bg: #dc2626;
+  --danger-bg-hover: #b91c1c;
+  --danger-hover: rgba(239, 68, 68, 0.08);
+  --stage-border: rgba(16, 185, 129, 0.35);
+  /* Gradient accents */
+  --gradient-1: linear-gradient(135deg, #6366f110, #8b5cf608);
+  --gradient-2: linear-gradient(135deg, #ea580c10, #d9770608);
+  --gradient-3: linear-gradient(135deg, #10b98110, #8b5cf608);
 }
 
 * {
@@ -106,11 +146,22 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--bg);
+  background: var(--bg-gradient);
   color: var(--text);
   height: 100vh;
   overflow: hidden;
-  transition: background 0.3s ease, color 0.3s ease;
+  transition: background 0.5s ease, color 0.4s ease;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 20%, rgba(99, 102, 241, 0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 60% at 80% 80%, rgba(6, 182, 212, 0.05) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(139, 92, 246, 0.03) 0%, transparent 70%);
+  pointer-events: none;
 }
 
 body.dragging {
@@ -128,7 +179,9 @@ body.dragging {
   display: flex;
   flex-direction: column;
   background: var(--bg-sidebar);
-  border-right: 1px solid var(--border);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-right: 1px solid var(--glass-border);
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -185,7 +238,7 @@ body.dragging {
 
 #search-input-area {
   padding: 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--glass-border);
   flex-shrink: 0;
 }
 
@@ -198,7 +251,7 @@ body.dragging {
 #search-query {
   flex: 1;
   background: var(--bg-input);
-  color: #fff;
+  color: var(--text-bright);
   border: 1px solid var(--border-light);
   border-radius: 4px;
   padding: 5px 8px;
@@ -236,7 +289,7 @@ body.dragging {
 }
 
 .search-toggle.active {
-  color: #fff;
+  color: var(--text-bright);
   background: var(--bg-accent);
   border-color: var(--accent);
 }
@@ -356,8 +409,10 @@ body.dragging {
   width: 42px;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
-  border-right: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-right: 1px solid var(--glass-border);
   flex-shrink: 0;
   align-items: center;
   padding-top: 4px;
@@ -385,8 +440,8 @@ body.dragging {
 }
 
 .activity-tab.active {
-  color: #fff;
-  border-left-color: #fff;
+  color: var(--text-bright);
+  border-left-color: var(--text-bright);
   background: var(--gradient-1);
 }
 
@@ -422,12 +477,12 @@ body.dragging .sash.active {
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--glass-border);
   font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
   flex-shrink: 0;
-  background: var(--gradient-1);
+  background: var(--accent-gradient-subtle);
 }
 
 #session-list {
@@ -485,7 +540,7 @@ body.dragging .sash.active {
 .session-item.active {
   background: var(--bg-active);
   border-left-color: var(--accent);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .session-project {
@@ -503,7 +558,7 @@ body.dragging .sash.active {
   width: 100%;
   background: var(--bg-input);
   border: 1px solid var(--accent);
-  color: #fff;
+  color: var(--text-bright);
   font-size: 12px;
   padding: 2px 4px;
   outline: none;
@@ -585,7 +640,7 @@ body.dragging .sash.active {
 
 #open-file-btn:hover {
   background: var(--border-light);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 #main {
@@ -629,8 +684,8 @@ body.dragging .sash.active {
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: var(--gradient-1);
-  border-bottom: 1px solid var(--border);
+  background: var(--accent-gradient-subtle);
+  border-bottom: 1px solid var(--glass-border);
   font-size: 12px;
   color: var(--text-muted);
   cursor: pointer;
@@ -653,7 +708,7 @@ body.dragging .sash.active {
 }
 
 #sidebar-toggle:hover {
-  color: #fff;
+  color: var(--text-bright);
 }
 
 #new-session {
@@ -672,7 +727,7 @@ body.dragging .sash.active {
 
 #new-session:hover {
   background: var(--border-light);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 #term-toggle {
@@ -689,13 +744,13 @@ body.dragging .sash.active {
 
 #term-toggle:hover {
   background: var(--border-light);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 #terminal-panel {
   display: none;
   height: 200px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--glass-border);
   background: var(--bg-terminal);
   flex-shrink: 0;
   overflow: hidden;
@@ -714,7 +769,7 @@ body.dragging .sash.active {
   display: flex;
   align-items: center;
   background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--glass-border);
   font-size: 11px;
   color: var(--text-muted);
   flex-shrink: 0;
@@ -742,7 +797,7 @@ body.dragging .sash.active {
 
 .terminal-tab.active {
   background: var(--bg);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .terminal-tab-close {
@@ -756,7 +811,7 @@ body.dragging .sash.active {
 }
 
 .terminal-tab-close:hover {
-  color: #fff;
+  color: var(--text-bright);
 }
 
 #terminal-add-btn {
@@ -770,7 +825,7 @@ body.dragging .sash.active {
 }
 
 #terminal-add-btn:hover {
-  color: #fff;
+  color: var(--text-bright);
   background: var(--bg-active);
 }
 
@@ -803,8 +858,10 @@ body.dragging .sash.active {
   display: flex;
   flex: 0 0 0px;
   flex-direction: column;
-  border-left: 1px solid var(--border);
-  background: var(--bg);
+  border-left: 1px solid var(--glass-border);
+  background: var(--bg-sidebar);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   min-width: 0;
   overflow: hidden;
 }
@@ -813,7 +870,7 @@ body.dragging .sash.active {
   display: flex;
   align-items: center;
   background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--glass-border);
   font-size: 12px;
   color: var(--text-muted);
   flex-shrink: 0;
@@ -851,7 +908,7 @@ body.dragging .sash.active {
 
 .editor-tab.active {
   background: var(--bg);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .editor-tab-label {
@@ -872,7 +929,7 @@ body.dragging .sash.active {
 }
 
 .editor-tab-close:hover {
-  color: #fff;
+  color: var(--text-bright);
 }
 
 #editor-lang-status {
@@ -894,7 +951,7 @@ body.dragging .sash.active {
 }
 
 #editor-close-btn:hover {
-  color: #fff;
+  color: var(--text-bright);
 }
 
 #sash-editor {
@@ -929,8 +986,8 @@ body.dragging .sash.active {
   align-items: center;
   justify-content: space-between;
   padding: 2px 12px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-gradient);
+  color: var(--text-bright);
   font-size: 11px;
   flex-shrink: 0;
 }
@@ -968,7 +1025,7 @@ body.dragging .sash.active {
 }
 
 #response strong {
-  color: #e0e0e0;
+  color: --text-light;
 }
 
 .user-prompt {
@@ -1079,7 +1136,7 @@ body.dragging .sash.active {
 
 .code-block-diff-btn {
   background: var(--accent-bg);
-  color: #fff;
+  color: var(--text-bright);
   border: none;
   padding: 2px 8px;
   border-radius: 3px;
@@ -1139,7 +1196,7 @@ body.dragging .sash.active {
 }
 
 .diff-collapse-btn:hover {
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .diff-body {
@@ -1246,8 +1303,10 @@ body.dragging .sash.active {
 }
 
 #input-area {
-  border-top: 1px solid var(--border);
-  background: var(--bg-sidebar);
+  border-top: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   flex-shrink: 0;
 }
 
@@ -1301,7 +1360,7 @@ body.dragging .sash.active {
   width: 100%;
   resize: none;
   background: var(--bg-input);
-  color: #fff;
+  color: var(--text-bright);
   border: 1px solid var(--border-light);
   border-radius: 6px;
   padding: 8px 12px;
@@ -1406,13 +1465,15 @@ body.dragging .sash.active {
 }
 
 .confirm-box {
-  background: var(--bg-panel);
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
+  background: var(--overlay-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--overlay-border);
+  border-radius: 12px;
   padding: 20px 24px;
   min-width: 320px;
   max-width: 440px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--glass-shadow);
 }
 
 .confirm-message {
@@ -1445,7 +1506,7 @@ body.dragging .sash.active {
 .confirm-btn.danger-btn {
   background: var(--danger-bg);
   border-color: var(--danger-bg-hover);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .confirm-btn.danger-btn:hover {
@@ -1476,7 +1537,7 @@ body.dragging .sash.active {
   gap: 8px;
   padding: 6px 12px;
   background: var(--gradient-2);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--glass-border);
   font-size: 12px;
   flex-shrink: 0;
 }
@@ -1531,7 +1592,7 @@ body.dragging .sash.active {
 }
 
 #git-refresh-btn:hover {
-  color: #fff;
+  color: var(--text-bright);
 }
 
 #git-main-area {
@@ -1561,7 +1622,7 @@ body.dragging .sash.active {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  background: var(--gradient-1);
+  background: var(--accent-gradient-subtle);
 }
 
 .git-section-title {
@@ -1588,7 +1649,7 @@ body.dragging .sash.active {
 .git-stage-all-btn:hover,
 .git-unstage-all-btn:hover {
   background: var(--border-light);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .git-file-list {
@@ -1623,7 +1684,7 @@ body.dragging .sash.active {
   text-align: center;
   line-height: 16px;
   flex-shrink: 0;
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .git-file-row:not(.git-untracked-row) .git-file-icon {
@@ -1671,7 +1732,7 @@ body.dragging .sash.active {
 
 .git-file-btn:hover {
   background: var(--border-light);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .git-stage-btn {
@@ -1695,7 +1756,7 @@ body.dragging .sash.active {
 #git-commit-msg {
   flex: 1;
   background: var(--bg-input);
-  color: #fff;
+  color: var(--text-bright);
   border: 1px solid var(--border-light);
   border-radius: 3px;
   padding: 6px 8px;
@@ -1710,7 +1771,7 @@ body.dragging .sash.active {
 
 .git-commit-btn {
   background: var(--accent-bg);
-  color: #fff;
+  color: var(--text-bright);
   border: none;
   padding: 6px 16px;
   border-radius: 3px;
@@ -1805,7 +1866,7 @@ body.dragging .sash.active {
   border-radius: 6px;
   padding: 10px 12px;
   max-width: 420px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--glass-shadow);
   font-family: 'SF Mono', Monaco, Menlo, monospace;
   font-size: 11px;
   line-height: 1.6;
@@ -1969,7 +2030,7 @@ body.dragging .sash.active {
 }
 
 #git-diff-close-btn:hover {
-  color: #fff;
+  color: var(--text-bright);
 }
 
 #git-diff-content {
@@ -2044,7 +2105,7 @@ body.dragging .sash.active {
 .git-branch-item.active {
   background: var(--bg-active);
   border-left-color: var(--warning-text);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .git-branch-name-label {
@@ -2086,7 +2147,7 @@ body.dragging .sash.active {
   border-radius: 6px;
   padding: 4px 0;
   min-width: 180px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--glass-shadow);
   font-size: 12px;
 }
 
@@ -2099,7 +2160,7 @@ body.dragging .sash.active {
 
 .git-context-item:hover {
   background: var(--bg-accent);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .git-context-danger {
@@ -2120,7 +2181,7 @@ body.dragging .sash.active {
 .git-stash-input {
   flex: 1;
   background: var(--bg-input);
-  color: #fff;
+  color: var(--text-bright);
   border: 1px solid var(--border-light);
   border-radius: 3px;
   padding: 3px 6px;
@@ -2172,7 +2233,7 @@ body.dragging .sash.active {
 
 .git-stash-btn:hover {
   background: var(--border-light);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 #sash-git-sidebar {

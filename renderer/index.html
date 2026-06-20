@@ -90,8 +90,8 @@
         <div id="view-git" class="main-view">
           <div id="git-not-repo" style="height:100%;display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px">
             <span style="font-size:48px;opacity:0.3">⎇</span>
-            <p style="color:#888;font-size:13px;margin:0">No Git repository found in this folder.</p>
-            <p style="color:#666;font-size:11px;margin:0">Run <code style="background:#333;padding:1px 4px;border-radius:2px">git init</code> or open a directory that contains a .git folder.</p>
+            <p style="color:#94a3b8;font-size:13px;margin:0">No Git repository found in this folder.</p>
+            <p style="color:#64748b;font-size:11px;margin:0">Run <code style="background:#1c1a2e;padding:1px 4px;border-radius:2px">git init</code> or open a directory that contains a .git folder.</p>
           </div>
           <div id="git-content" style="display:none;flex:1;flex-direction:column;overflow:hidden">
             <div id="git-branch-bar">
@@ -153,19 +153,19 @@
           <div class="settings-content" style="max-width:480px;margin:0 auto;padding:16px">
             <div class="settings-section">
               <div class="settings-label">Model</div>
-              <span id="settings-model" style="font-size:12px;color:#ccc;font-family:monospace"></span>
+              <span id="settings-model" style="font-size:12px;color:#cbd5e1;font-family:monospace"></span>
             </div>
             <div class="settings-section" style="margin-top:16px">
               <div class="settings-label">Providers</div>
               <div id="auth-list"></div>
               <div id="auth-form" style="display:none;margin-top:8px">
-                <select id="auth-provider" style="width:100%;padding:4px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:3px;font-size:11px;margin-bottom:4px">
+                <select id="auth-provider" style="width:100%;padding:4px;background:#1c1a2e;color:#cbd5e1;border:1px solid #252536;border-radius:3px;font-size:11px;margin-bottom:4px">
                   <option value="">Select provider...</option>
                 </select>
-                <input id="auth-key" type="password" placeholder="API key" style="width:100%;padding:4px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:3px;font-size:11px;margin-bottom:4px;box-sizing:border-box" />
+                <input id="auth-key" type="password" placeholder="API key" style="width:100%;padding:4px;background:#1c1a2e;color:#cbd5e1;border:1px solid #252536;border-radius:3px;font-size:11px;margin-bottom:4px;box-sizing:border-box" />
                 <div style="display:flex;gap:4px">
                   <button id="auth-save-btn" class="settings-btn">Save</button>
-                  <button id="auth-cancel-btn" class="settings-btn" style="background:#444">Cancel</button>
+                  <button id="auth-cancel-btn" class="settings-btn" style="background:#2d2d40">Cancel</button>
                 </div>
               </div>
               <button id="add-auth-btn" class="settings-btn" style="margin-top:8px">+ Connect provider</button>
