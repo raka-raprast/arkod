@@ -6,7 +6,6 @@ const newSessionBtn = document.getElementById('new-session');
 const sessionListEl = document.getElementById('session-list');
 const editorPanel = document.getElementById('editor-panel');
 const editorEl = document.getElementById('editor');
-const editorFileName = document.getElementById('editor-file-name');
 const editorLangStatus = document.getElementById('editor-lang-status');
 const editorCloseBtn = document.getElementById('editor-close-btn');
 const editorPosition = document.getElementById('editor-position');
@@ -18,6 +17,7 @@ const sidebarEl = document.getElementById('sidebar');
 const sashSidebar = document.getElementById('sash-sidebar');
 const sashTerminal = document.getElementById('sash-terminal');
 const sashInner = document.getElementById('sash-sidebar-inner');
+const sashEditor = document.getElementById('sash-editor');
 const sessionsSection = document.getElementById('sessions-section');
 const filesSection = document.getElementById('files-section');
 const sidebarToggleBtn = document.getElementById('sidebar-toggle');
@@ -76,6 +76,16 @@ sashTerminal.addEventListener('mousedown', (e) => {
   e.preventDefault();
 });
 
+if (sashEditor) {
+  sashEditor.addEventListener('mousedown', (e) => {
+    if (openFiles.length === 0) return;
+    sashDrag = { type: 'editor', startX: e.clientX, startSize: editorPanel.offsetWidth };
+    sashEditor.classList.add('active');
+    document.body.classList.add('dragging');
+    e.preventDefault();
+  });
+}
+
 document.addEventListener('mousemove', (e) => {
   if (!sashDrag) return;
   if (sashDrag.type === 'sidebar') {
@@ -95,6 +105,9 @@ document.addEventListener('mousemove', (e) => {
   } else if (sashDrag.type === 'terminal') {
     const h = Math.max(60, Math.min(600, sashDrag.startSize - (e.clientY - sashDrag.startY)));
     terminalPanel.style.height = h + 'px';
+  } else if (sashDrag.type === 'editor') {
+    const w = Math.max(200, Math.min(1200, sashDrag.startSize - (e.clientX - sashDrag.startX)));
+    editorPanel.style.flex = '0 0 ' + w + 'px';
   }
 });
 
@@ -103,6 +116,7 @@ document.addEventListener('mouseup', () => {
   sashSidebar.classList.remove('active');
   sashTerminal.classList.remove('active');
   sashInner.classList.remove('active');
+  if (sashEditor) sashEditor.classList.remove('active');
   document.body.classList.remove('dragging');
   sashDrag = null;
 });
@@ -220,7 +234,7 @@ function switchSidebarTab(tabName) {
     }
     const inputArea = document.getElementById('input-area');
     if (inputArea) inputArea.style.display = 'none';
-    if (cwdBarEl) cwdBarEl.style.display = 'none';
+    if (cwdBarEl) cwdBarEl.style.display = tabName === 'git' ? '' : 'none';
     if (tabName === 'settings') {
       if (addAuthBtn) addAuthBtn.style.display = '';
       if (authFormEl) authFormEl.style.display = 'none';
@@ -865,43 +879,92 @@ async function loadSessions() {
 }
 
 let editorView = null;
+let openFiles = [];        // [{ path, name }]
+let activeFilePath = null;
 
 function initEditor() {
   if (!EditorModule || !EditorModule.createEditor) return;
   editorView = EditorModule.createEditor(editorEl, window.api);
-  editorPanel.classList.add('open');
-  responseEl.style.display = 'none';
-
-  editorView.dom.addEventListener('focus', () => {
-    updateEditorPosition();
-  });
+  editorView.dom.addEventListener('focus', () => updateEditorPosition());
+  editorPanel.style.display = 'flex';
 }
 
 async function openFileInEditor(filePath) {
-  if (!editorView) {
-    editorPanel.classList.add('open');
-    responseEl.style.display = 'none';
-    initEditor();
+  if (!editorView) initEditor();
+
+  // Already open? Switch to it
+  const existing = openFiles.find(f => f.path === filePath);
+  if (existing) {
+    activeFilePath = filePath;
+    if (EditorModule.openFile) await EditorModule.openFile(filePath, window.api);
+  } else {
+    openFiles.push({ path: filePath, name: filePath.split('/').pop() });
+    activeFilePath = filePath;
+    if (EditorModule.openFile) await EditorModule.openFile(filePath, window.api);
   }
 
-  const fileName = filePath.split('/').pop();
-  editorFileName.textContent = fileName;
-
-  if (EditorModule.openFile) {
-    await EditorModule.openFile(filePath, window.api);
+  renderEditorTabs();
+  if (openFiles.length === 1) {
+    editorPanel.style.flex = '0 0 440px';
+    if (sashEditor) sashEditor.classList.add('visible');
   }
-  editorFileName.textContent = filePath;
+  updateEditorPosition();
+}
+
+function closeEditorTab(filePath) {
+  openFiles = openFiles.filter(f => f.path !== filePath);
+
+  if (activeFilePath === filePath) {
+    if (openFiles.length > 0) {
+      activeFilePath = openFiles[openFiles.length - 1].path;
+      if (EditorModule.openFile) EditorModule.openFile(activeFilePath, window.api);
+    } else {
+      activeFilePath = null;
+      if (EditorModule.closeFile) EditorModule.closeFile(window.api);
+      editorPanel.style.flex = '0 0 0px';
+      if (sashEditor) sashEditor.classList.remove('visible');
+    }
+  }
+
+  renderEditorTabs();
+  if (openFiles.length === 0) promptEl.focus();
   updateEditorPosition();
 }
 
 function closeEditor() {
-  if (EditorModule.closeFile) {
-    EditorModule.closeFile(window.api);
+  if (activeFilePath) closeEditorTab(activeFilePath);
+}
+
+function renderEditorTabs() {
+  const tabsEl = document.getElementById('editor-tabs');
+  if (!tabsEl) return;
+  tabsEl.innerHTML = '';
+
+  for (const f of openFiles) {
+    const tab = document.createElement('div');
+    tab.className = 'editor-tab' + (f.path === activeFilePath ? ' active' : '');
+    tab.title = f.path;
+
+    const label = document.createElement('span');
+    label.className = 'editor-tab-label';
+    label.textContent = f.name;
+    tab.appendChild(label);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'editor-tab-close';
+    closeBtn.textContent = '×';
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeEditorTab(f.path);
+    });
+    tab.appendChild(closeBtn);
+
+    tab.addEventListener('click', () => {
+      if (f.path !== activeFilePath) openFileInEditor(f.path);
+    });
+
+    tabsEl.appendChild(tab);
   }
-  editorPanel.classList.remove('open');
-  responseEl.style.display = '';
-  editorFileName.textContent = '';
-  promptEl.focus();
 }
 
 function updateEditorPosition() {
@@ -909,6 +972,10 @@ function updateEditorPosition() {
   const pos = editorView.state.selection.main.head;
   const line = editorView.state.doc.lineAt(pos);
   editorPosition.textContent = `Ln ${line.number}, Col ${pos - line.from + 1}`;
+  if (activeFilePath) {
+    const name = activeFilePath.split('/').pop();
+    editorPosition.textContent = name + ' · ' + editorPosition.textContent;
+  }
 }
 
 editorCloseBtn.addEventListener('click', closeEditor);
@@ -1502,6 +1569,7 @@ if (!promptEl || !responseEl) {
   });
 
   window.api.onFileTreeChanged(() => {
+    cachedFileList = null;
     refreshFileTree();
   });
 
@@ -1641,8 +1709,7 @@ const gitPullBtn = document.getElementById('git-pull-btn');
 const gitPushBtn = document.getElementById('git-push-btn');
 const gitRebaseBtn = document.getElementById('git-rebase-btn');
 const gitMergeBtn = document.getElementById('git-merge-btn');
-const gitCreateBranchBtn = document.getElementById('git-create-branch-btn');
-const gitNewBranchInput = document.getElementById('git-new-branch-input');
+
 
 if (gitFetchBtn) gitFetchBtn.addEventListener('click', async () => {
   gitFetchBtn.disabled = true;
@@ -1655,6 +1722,7 @@ if (gitFetchBtn) gitFetchBtn.addEventListener('click', async () => {
 });
 
 if (gitPullBtn) gitPullBtn.addEventListener('click', async () => {
+  if (!await checkDirtyGuard('pull')) return;
   gitPullBtn.disabled = true;
   gitPullBtn.textContent = '...';
   const r = await window.api.gitPull();
@@ -1675,6 +1743,7 @@ if (gitPushBtn) gitPushBtn.addEventListener('click', async () => {
 });
 
 async function gitActionOnBranch(action, actionLabel) {
+  if (!await checkDirtyGuard(actionLabel.toLowerCase())) return;
   const data = await window.api.gitBranches();
   const branches = data.branches.filter(b => !b.current);
   if (branches.length === 0) { alert('No other branches to ' + actionLabel); return; }
@@ -1719,21 +1788,6 @@ async function gitActionOnBranch(action, actionLabel) {
 if (gitRebaseBtn) gitRebaseBtn.addEventListener('click', () => gitActionOnBranch('rebase', 'Rebase'));
 if (gitMergeBtn) gitMergeBtn.addEventListener('click', () => gitActionOnBranch('merge', 'Merge'));
 
-if (gitCreateBranchBtn && gitNewBranchInput) gitCreateBranchBtn.addEventListener('click', async () => {
-  const name = gitNewBranchInput.value.trim();
-  if (!name) return;
-  gitCreateBranchBtn.disabled = true;
-  const r = await window.api.gitCreateBranch(name);
-  if (r.error) { alert('Create branch failed: ' + r.error); }
-  else gitNewBranchInput.value = '';
-  gitCreateBranchBtn.disabled = false;
-  refreshGitUI();
-});
-
-if (gitNewBranchInput) gitNewBranchInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && gitCreateBranchBtn) gitCreateBranchBtn.click();
-});
-
 async function initGitTab() {
   if (gitInitialized) { refreshGitUI(); return; }
   gitInitialized = true;
@@ -1765,7 +1819,7 @@ async function refreshGitUI() {
     renderGitStatus(),
     renderBranches(),
     renderStashes(),
-    renderLog(),
+    renderGraph(),
   ]);
 }
 
@@ -1786,6 +1840,8 @@ async function renderGitStatus() {
     gitUnstagedList.appendChild(row);
   }
 
+  const untrackedSection = document.getElementById('git-untracked-section');
+  if (untrackedSection) untrackedSection.style.display = untracked.length > 0 ? '' : 'none';
   for (const f of untracked) {
     const row = gitFileRow(f, false);
     row.classList.add('git-untracked-row');
@@ -1800,6 +1856,30 @@ async function renderGitStatus() {
   gitStagedSection.style.display = staged.length > 0 ? '' : 'none';
   document.getElementById('git-commit-area').style.display = staged.length > 0 ? '' : 'none';
 }
+
+function makeCollapsible(headerEl, listEl) {
+  headerEl.style.cursor = 'pointer';
+  const arrow = document.createElement('span');
+  arrow.className = 'git-collapse-arrow';
+  arrow.textContent = '▾';
+  arrow.style.cssText = 'font-size:10px;margin-right:4px;width:12px;display:inline-block;text-align:center';
+  headerEl.insertBefore(arrow, headerEl.firstChild);
+  headerEl.addEventListener('click', () => {
+    const hidden = listEl.style.display === 'none';
+    listEl.style.display = hidden ? '' : 'none';
+    arrow.textContent = hidden ? '▾' : '▸';
+  });
+}
+
+// Make section headers collapsible on first init
+(function initCollapsibleHeaders() {
+  const changesHeader = document.querySelector('#git-staging-section .git-section:first-child .git-section-header');
+  if (changesHeader) makeCollapsible(changesHeader, gitUnstagedList);
+  const untrackedHeader = document.querySelector('#git-untracked-section .git-section-header');
+  if (untrackedHeader) makeCollapsible(untrackedHeader, gitUntrackedList);
+  const stagedHeader = document.querySelector('#git-staged-section .git-section-header');
+  if (stagedHeader) makeCollapsible(stagedHeader, gitStagedList);
+})();
 
 function gitFileRow(file, isStaged) {
   const row = document.createElement('div');
@@ -1870,13 +1950,173 @@ async function showGitFileDiff(filePath, staged) {
   gitDiffPanel.style.display = '';
 }
 
+async function checkDirtyGuard(action, targetBranch) {
+  try {
+    const status = await window.api.gitStatus();
+    if (!status.files || status.files.length === 0) return true;
+
+    // For branch switch: only warn if dirty files overlap with files changed in target
+    if (targetBranch) {
+      const dirtyPaths = new Set(status.files.map(f => f.path));
+      const branchChanged = await window.api.gitBranchDiffFiles(targetBranch);
+      const overlap = branchChanged.filter(f => dirtyPaths.has(f));
+      if (overlap.length === 0) return true;
+
+      const fileList = overlap.length <= 3 ? overlap.join(', ') : overlap.slice(0, 3).join(', ') + ` and ${overlap.length - 3} more`;
+      const ok = await showConfirm(`Switching to "${targetBranch}" will overwrite local changes in:\n\n${fileList}\n\nContinue anyway?`);
+      return ok;
+    }
+
+    // For rebase/merge/pull: blanket warning
+    const ok = await showConfirm(`You have uncommitted changes. ${action} may cause conflicts or data loss.\n\nContinue anyway?`);
+    return ok;
+  } catch (_) { return true; }
+}
+
+function showBranchContextMenu(branch, e) {
+  e.preventDefault();
+  // Remove any existing menu
+  const existing = document.getElementById('git-context-menu');
+  if (existing) existing.remove();
+
+  const menu = document.createElement('div');
+  menu.id = 'git-context-menu';
+  menu.className = 'git-context-menu';
+  menu.style.cssText = `left:${e.clientX}px;top:${e.clientY}px`;
+
+  const items = [
+    { label: 'Checkout', action: async () => {
+      if (!await checkDirtyGuard('switch branches', branch.name)) return;
+      const r = await window.api.gitCheckout(branch.name);
+      if (r.error) alert('Checkout failed: ' + r.error);
+      refreshGitUI();
+    }},
+    { label: 'Create branch from here', action: () => {
+      menu.remove();
+      showCreateBranchModal(branch.name);
+    }},
+    { label: 'Fetch', action: async () => {
+      const r = await window.api.gitFetch();
+      if (r.error) alert('Fetch failed: ' + r.error);
+      refreshGitUI();
+    }},
+    { label: 'Pull', action: async () => {
+      if (!await checkDirtyGuard('pull')) return;
+      const r = await window.api.gitPull();
+      if (r.error) alert('Pull failed: ' + r.error);
+      refreshGitUI();
+    }},
+    { label: 'Rebase onto this branch', action: async () => {
+      if (!await checkDirtyGuard('rebase')) return;
+      const r = await window.api.gitRebase(branch.name);
+      if (r.error) alert('Rebase failed: ' + r.error);
+      refreshGitUI();
+    }},
+    { label: 'Delete', danger: true, action: async () => {
+      const ok = await showConfirm(`Delete branch "${branch.name}"?`, true);
+      if (!ok) return;
+      const r = await window.api.gitDeleteBranch(branch.name);
+      if (r.error) alert('Delete failed: ' + r.error);
+      refreshGitUI();
+    }},
+  ];
+
+  // Hide delete for current branch
+  if (branch.current) items.pop();
+
+  for (const item of items) {
+    const el = document.createElement('div');
+    el.className = 'git-context-item' + (item.danger ? ' git-context-danger' : '');
+    el.textContent = item.label;
+    el.addEventListener('click', async () => {
+      menu.remove();
+      await item.action();
+    });
+    menu.appendChild(el);
+  }
+
+  document.body.appendChild(menu);
+
+  // Close on outside click
+  const close = (ev) => {
+    if (!menu.contains(ev.target)) {
+      menu.remove();
+      document.removeEventListener('click', close);
+      document.removeEventListener('contextmenu', close);
+    }
+  };
+  setTimeout(() => {
+    document.addEventListener('click', close);
+    document.addEventListener('contextmenu', close);
+  }, 0);
+}
+
+function showCreateBranchModal(baseBranch) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center';
+  overlay.addEventListener('click', () => overlay.remove());
+
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#252526;border:1px solid #454545;border-radius:8px;padding:16px;min-width:300px;box-shadow:0 8px 32px rgba(0,0,0,0.5)';
+  box.addEventListener('click', (e) => e.stopPropagation());
+
+  const label = document.createElement('div');
+  label.style.cssText = 'font-size:12px;color:#ccc;margin-bottom:10px';
+  label.textContent = `Create new branch from "${baseBranch}"`;
+  box.appendChild(label);
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.style.cssText = 'width:100%;padding:6px 8px;background:#3c3c3c;color:#fff;border:1px solid #555;border-radius:4px;font-size:12px;outline:none;margin-bottom:12px;box-sizing:border-box';
+  input.placeholder = 'New branch name';
+  box.appendChild(input);
+
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;justify-content:flex-end;gap:8px';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.cssText = 'background:#444;color:#ccc;border:1px solid #555;padding:5px 14px;border-radius:3px;cursor:pointer;font-size:12px';
+  cancelBtn.addEventListener('click', () => overlay.remove());
+
+  const createBtn = document.createElement('button');
+  createBtn.textContent = 'Create';
+  createBtn.style.cssText = 'background:#0e639c;color:#fff;border:none;padding:5px 14px;border-radius:3px;cursor:pointer;font-size:12px';
+  createBtn.addEventListener('click', async () => {
+    const name = input.value.trim();
+    if (!name) return;
+    createBtn.disabled = true;
+    createBtn.textContent = 'Creating...';
+    const r = await window.api.gitCreateBranch(name);
+    if (r.error) {
+      alert('Create branch failed: ' + r.error);
+      createBtn.disabled = false;
+      createBtn.textContent = 'Create';
+    } else {
+      overlay.remove();
+      refreshGitUI();
+    }
+  });
+
+  actions.appendChild(cancelBtn);
+  actions.appendChild(createBtn);
+  box.appendChild(actions);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  input.focus();
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') createBtn.click();
+  });
+}
+
 async function renderBranches() {
   const data = await window.api.gitBranches();
   gitBranchList.innerHTML = '';
   for (const b of data.branches) {
     const row = document.createElement('div');
     row.className = 'git-branch-item' + (b.current ? ' active' : '');
-    row.title = b.current ? 'Current branch' : 'Click to switch';
+    row.title = b.current ? 'Current branch' : 'Double-click to switch · Right-click for actions';
 
     const name = document.createElement('span');
     name.className = 'git-branch-name-label';
@@ -1884,7 +2124,8 @@ async function renderBranches() {
     row.appendChild(name);
 
     if (!b.current) {
-      name.addEventListener('click', async () => {
+      name.addEventListener('dblclick', async () => {
+        if (!await checkDirtyGuard('switch branches', b.name)) return;
         const result = await window.api.gitCheckout(b.name);
         if (result.error) {
           alert('Checkout failed: ' + result.error);
@@ -1892,21 +2133,9 @@ async function renderBranches() {
           refreshGitUI();
         }
       });
-
-      const delBtn = document.createElement('button');
-      delBtn.className = 'git-branch-delete-btn';
-      delBtn.textContent = '×';
-      delBtn.title = 'Delete branch';
-      delBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const ok = await showConfirm(`Delete branch "${b.name}"?`, true);
-        if (!ok) return;
-        const result = await window.api.gitDeleteBranch(b.name);
-        if (result.error) alert('Delete failed: ' + result.error);
-        refreshGitUI();
-      });
-      row.appendChild(delBtn);
     }
+
+    row.addEventListener('contextmenu', (e) => showBranchContextMenu(b, e));
 
     gitBranchList.appendChild(row);
   }
@@ -1923,7 +2152,7 @@ async function renderStashes() {
   stashInput.className = 'git-stash-input';
   stashInput.placeholder = 'Stash message (optional)';
   const stashSaveBtn = document.createElement('button');
-  stashSaveBtn.className = 'git-file-btn';
+  stashSaveBtn.className = 'git-stash-btn';
   stashSaveBtn.textContent = 'Stash';
   stashSaveBtn.title = 'Save stash';
   stashSaveBtn.addEventListener('click', async () => {
@@ -1944,11 +2173,12 @@ async function renderStashes() {
     row.title = s.hash;
 
     const popBtn = document.createElement('button');
-    popBtn.className = 'git-file-btn';
+    popBtn.className = 'git-stash-btn';
     popBtn.textContent = 'Pop';
     popBtn.title = 'Apply and drop stash';
     popBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
+      if (!await checkDirtyGuard('apply stash')) return;
       const result = await window.api.gitStashPop(i);
       if (result.error) {
         alert('Stash pop failed: ' + result.error);
@@ -1961,37 +2191,323 @@ async function renderStashes() {
   }
 }
 
-async function renderLog() {
-  const commits = await window.api.gitLog();
-  gitLogList.innerHTML = '';
-  for (const c of commits) {
-    const row = document.createElement('div');
-    row.className = 'git-log-item';
+const GRAPH_COLORS = ['#f0a050', '#4ec94e', '#569cd6', '#c586c0', '#4fc1ff', '#d4d4d4', '#f44747', '#dcdcaa', '#e2b714', '#ce9178'];
+const GRAPH_ROW = 24;
+const GRAPH_LANE = 18;
+const GRAPH_DOT = 4;
+const GRAPH_PAD = 10;
 
-    const shortHash = document.createElement('span');
-    shortHash.className = 'git-log-hash';
-    shortHash.textContent = c.shortHash;
-    row.appendChild(shortHash);
+function relativeTime(ts) {
+  if (!ts) return '';
+  const diff = Date.now() - ts;
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return 'just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return min + 'm ago';
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return hr + 'h ago';
+  const days = Math.floor(hr / 24);
+  if (days < 7) return days + 'd ago';
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return weeks + 'w ago';
+  const months = Math.floor(days / 30);
+  if (months < 12) return months + 'mo ago';
+  const yrs = Math.floor(days / 365);
+  return yrs + 'y ago';
+}
 
-    const refs = document.createElement('span');
-    refs.className = 'git-log-refs';
-    if (c.refs && c.refs.length > 0) {
-      refs.textContent = c.refs.join(' ');
+function formatDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined }) +
+    ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+}
+
+function positionTooltip(tip, e) {
+  let left = e.clientX + 12;
+  let top = e.clientY + 8;
+  if (left + tip.offsetWidth > window.innerWidth) left = e.clientX - tip.offsetWidth - 12;
+  if (top + tip.offsetHeight > window.innerHeight) top = e.clientY - tip.offsetHeight - 8;
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+}
+
+function computeGraphLanes(commits) {
+  const hashIdx = {};
+  for (let i = 0; i < commits.length; i++) hashIdx[commits[i].hash] = i;
+
+  const commitLane = {};
+  const branchLane = {};
+  let nextLane = 0;
+
+  // Process oldest first: assign each commit a lane
+  for (let i = commits.length - 1; i >= 0; i--) {
+    const c = commits[i];
+    let lane;
+
+    // Try to follow first parent's lane (lineage)
+    if (c.parents.length > 0 && commitLane[c.parents[0]] !== undefined) {
+      lane = commitLane[c.parents[0]];
     }
-    row.appendChild(refs);
+
+    // Check branch refs for lane assignment
+    for (const ref of (c.refs || [])) {
+      // Resolve branch name: strip tags, handle HEAD -> branch, use last segment
+      let branch = ref.replace(/^tag: /, '');
+      if (branch.startsWith('HEAD -> ')) branch = branch.slice(7);
+      branch = branch.split('/').pop();
+      if (!branch || branch === 'HEAD') continue;
+      if (branchLane[branch] !== undefined && lane === undefined) {
+        lane = branchLane[branch];
+      }
+      if (branchLane[branch] === undefined) {
+        branchLane[branch] = lane !== undefined ? lane : nextLane;
+        if (lane === undefined) lane = nextLane++;
+      }
+    }
+
+    if (lane === undefined) lane = nextLane++;
+    commitLane[c.hash] = lane;
+  }
+
+  return commitLane;
+}
+
+async function renderGraph() {
+  const commits = await window.api.gitGraph();
+  gitLogList.innerHTML = '';
+  if (commits.length === 0) return;
+
+  const laneMap = computeGraphLanes(commits);
+  const hashIdx = {};
+  for (let i = 0; i < commits.length; i++) hashIdx[commits[i].hash] = i;
+
+  const maxLane = Math.max(0, ...Object.values(laneMap));
+  const svgW = (maxLane + 1) * GRAPH_LANE + GRAPH_PAD;
+  const svgH = commits.length * GRAPH_ROW;
+
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('width', svgW);
+  svg.setAttribute('height', svgH);
+  svg.setAttribute('class', 'git-graph-svg');
+  svg.style.cssText = `position:absolute;top:0;left:0;width:${svgW}px;height:${svgH}px;overflow:visible`;
+
+  // Draw connecting lines first (behind dots)
+  const lines = [];
+  for (let i = 0; i < commits.length; i++) {
+    const c = commits[i];
+    const l = laneMap[c.hash];
+    const y = i * GRAPH_ROW + GRAPH_ROW / 2;
+    const x = l * GRAPH_LANE + GRAPH_LANE / 2 + GRAPH_PAD;
+
+    // Vertical line upward to first parent (same lane)
+    const p1 = c.parents[0];
+    if (p1 && hashIdx[p1] !== undefined && laneMap[p1] !== undefined) {
+      const parentIdx = hashIdx[p1];
+      const parentLane = laneMap[p1];
+      const parentY = parentIdx * GRAPH_ROW + GRAPH_ROW / 2;
+      if (parentLane === l) {
+        // Straight line in same lane
+        lines.push({ x1: x, y1: parentY, x2: x, y2: y, lane: l });
+      } else {
+        // Line curves to different lane
+        const parentX = parentLane * GRAPH_LANE + GRAPH_LANE / 2 + GRAPH_PAD;
+        lines.push({ x1: parentX, y1: parentY, x2: x, y2: y, lane: l, curve: true });
+      }
+    }
+
+    // Merge parents: additional parent lines
+    for (let pi = 1; pi < c.parents.length; pi++) {
+      const mp = c.parents[pi];
+      if (mp && hashIdx[mp] !== undefined && laneMap[mp] !== undefined) {
+        const mpIdx = hashIdx[mp];
+        const mpLane = laneMap[mp];
+        const mpY = mpIdx * GRAPH_ROW + GRAPH_ROW / 2;
+        const mpX = mpLane * GRAPH_LANE + GRAPH_LANE / 2 + GRAPH_PAD;
+        lines.push({ x1: mpX, y1: mpY, x2: x, y2: y, lane: mpLane, curve: true });
+      }
+    }
+  }
+
+  for (const ln of lines) {
+    const color = GRAPH_COLORS[ln.lane % GRAPH_COLORS.length];
+    if (ln.curve) {
+      const midY = (ln.y1 + ln.y2) / 2;
+      const path = document.createElementNS(svgNS, 'path');
+      const d = `M${ln.x1},${ln.y1} C${ln.x1},${midY} ${ln.x2},${midY} ${ln.x2},${ln.y2}`;
+      path.setAttribute('d', d);
+      path.setAttribute('stroke', color);
+      path.setAttribute('stroke-width', '1.5');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('opacity', '0.6');
+      svg.appendChild(path);
+    } else {
+      const line = document.createElementNS(svgNS, 'line');
+      line.setAttribute('x1', ln.x1);
+      line.setAttribute('y1', ln.y1);
+      line.setAttribute('x2', ln.x2);
+      line.setAttribute('y2', ln.y2);
+      line.setAttribute('stroke', color);
+      line.setAttribute('stroke-width', '2');
+      line.setAttribute('opacity', '0.6');
+      svg.appendChild(line);
+    }
+  }
+
+  // Draw commit dots
+  for (let i = 0; i < commits.length; i++) {
+    const c = commits[i];
+    const l = laneMap[c.hash];
+    const cx = l * GRAPH_LANE + GRAPH_LANE / 2 + GRAPH_PAD;
+    const cy = i * GRAPH_ROW + GRAPH_ROW / 2;
+    const color = GRAPH_COLORS[l % GRAPH_COLORS.length];
+
+    const circle = document.createElementNS(svgNS, 'circle');
+    circle.setAttribute('cx', cx);
+    circle.setAttribute('cy', cy);
+    circle.setAttribute('r', GRAPH_DOT);
+    circle.setAttribute('fill', color);
+    circle.setAttribute('stroke', '#1e1e1e');
+    circle.setAttribute('stroke-width', '1.5');
+    svg.appendChild(circle);
+  }
+
+  // Build overlay div for text labels
+  const overlay = document.createElement('div');
+  overlay.className = 'git-graph-overlay';
+  overlay.style.cssText = `position:absolute;top:0;left:${svgW}px;right:0;bottom:0`;
+
+  for (let i = 0; i < commits.length; i++) {
+    const c = commits[i];
+    const l = laneMap[c.hash];
+    const color = GRAPH_COLORS[l % GRAPH_COLORS.length];
+
+    const row = document.createElement('div');
+    row.className = 'git-graph-row';
+    row.style.cssText = `height:${GRAPH_ROW}px;line-height:${GRAPH_ROW}px`;
+
+    const refsSpan = document.createElement('span');
+    refsSpan.className = 'git-graph-refs';
+    if (c.refs && c.refs.length > 0) {
+      for (const ref of c.refs) {
+        const tag = document.createElement('span');
+        tag.className = 'git-graph-tag';
+        tag.textContent = ref;
+        tag.style.cssText = `background:${color};color:#1e1e1e;padding:0 4px;border-radius:3px;font-size:10px;margin-right:4px`;
+        refsSpan.appendChild(tag);
+      }
+    }
+    row.appendChild(refsSpan);
 
     const msg = document.createElement('span');
-    msg.className = 'git-log-msg';
+    msg.className = 'git-graph-msg';
     msg.textContent = c.message;
     row.appendChild(msg);
 
     const meta = document.createElement('span');
-    meta.className = 'git-log-meta';
-    meta.textContent = c.author + ', ' + c.date;
+    meta.className = 'git-graph-meta';
+    meta.textContent = relativeTime(c.timestamp);
     row.appendChild(meta);
 
-    gitLogList.appendChild(row);
+    // Click to expand/collapse file list
+    row.addEventListener('click', async () => {
+      const existing = row.nextSibling;
+      if (existing && existing.classList && existing.classList.contains('git-graph-files')) {
+        existing.remove();
+        return;
+      }
+      // Remove any other open file panels
+      overlay.querySelectorAll('.git-graph-files').forEach(el => el.remove());
+
+      const filesPanel = document.createElement('div');
+      filesPanel.className = 'git-graph-files';
+      filesPanel.textContent = 'Loading files...';
+      overlay.insertBefore(filesPanel, row.nextSibling);
+
+      const files = await window.api.gitCommitFiles(c.hash);
+      filesPanel.innerHTML = '';
+      if (files.length === 0) {
+        filesPanel.textContent = 'No files changed.';
+        return;
+      }
+      for (const f of files) {
+        const frow = document.createElement('div');
+        frow.className = 'git-graph-file-row';
+        const statusSpan = document.createElement('span');
+        statusSpan.className = 'git-graph-file-status git-graph-file-' + f.label;
+        statusSpan.textContent = f.status;
+        frow.appendChild(statusSpan);
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'git-graph-file-name';
+        nameSpan.textContent = f.path;
+        frow.appendChild(nameSpan);
+
+        frow.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          const existingDiff = frow.nextSibling;
+          if (existingDiff && existingDiff.classList && existingDiff.classList.contains('git-graph-file-diff')) {
+            existingDiff.remove();
+            return;
+          }
+          const diffWrap = document.createElement('div');
+          diffWrap.className = 'git-graph-file-diff';
+          diffWrap.textContent = 'Loading diff...';
+          frow.after(diffWrap);
+
+          const diffText = await window.api.gitCommitFileDiff(c.hash, f.path);
+          diffWrap.innerHTML = '';
+          if (diffText) {
+            const diffEl = renderDiff(diffText, f.path);
+            diffWrap.appendChild(diffEl);
+          } else {
+            diffWrap.textContent = 'No diff available.';
+          }
+        });
+
+        filesPanel.appendChild(frow);
+      }
+    });
+
+    // Hover tooltip
+    row.addEventListener('mouseenter', (e) => {
+      let tip = document.getElementById('git-graph-tooltip');
+      if (!tip) {
+        tip = document.createElement('div');
+        tip.id = 'git-graph-tooltip';
+        tip.className = 'git-graph-tooltip';
+        document.body.appendChild(tip);
+      }
+      const parents = c.parents.length > 0 ? c.parents.map(p => p.slice(0, 7)).join(', ') : '(root)';
+      const fullDate = formatDate(c.timestamp);
+      tip.innerHTML =
+        `<div class="git-tip-hash">${c.shortHash}<span style="color:#666;margin-left:8px">${c.hash.slice(0, 7)}</span></div>` +
+        `<div class="git-tip-row"><span class="git-tip-label">Parents</span> ${parents}</div>` +
+        `<div class="git-tip-row"><span class="git-tip-label">Author</span> ${c.author}</div>` +
+        `<div class="git-tip-row"><span class="git-tip-label">Date</span> ${fullDate} <span style="color:#666">(${relativeTime(c.timestamp)})</span></div>` +
+        (c.refs.length ? `<div class="git-tip-row"><span class="git-tip-label">Refs</span> ${c.refs.join(', ')}</div>` : '') +
+        `<div class="git-tip-msg">${c.message}</div>`;
+      tip.style.display = 'block';
+      positionTooltip(tip, e);
+    });
+    row.addEventListener('mousemove', (e) => {
+      const tip = document.getElementById('git-graph-tooltip');
+      if (tip) positionTooltip(tip, e);
+    });
+    row.addEventListener('mouseleave', () => {
+      const tip = document.getElementById('git-graph-tooltip');
+      if (tip) tip.style.display = 'none';
+    });
+
+    overlay.appendChild(row);
   }
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'git-graph-wrapper';
+  wrapper.style.cssText = `position:relative;min-height:${svgH}px`;
+  wrapper.appendChild(svg);
+  wrapper.appendChild(overlay);
+  gitLogList.appendChild(wrapper);
 }
 
 const termToggle = document.getElementById('term-toggle');
@@ -2103,6 +2619,124 @@ sidebarToggleBtn.addEventListener('click', (e) => {
   toggleSidebar();
 });
 
+// ── Quick Open (Ctrl+P / Cmd+P) ──
+
+let cachedFileList = null;
+let quickOpenSelected = -1;
+
+function fuzzyMatch(pattern, text) {
+  const lower = text.toLowerCase();
+  let pi = 0;
+  for (let ti = 0; ti < lower.length && pi < pattern.length; ti++) {
+    if (lower[ti] === pattern[pi]) pi++;
+  }
+  return pi === pattern.length;
+}
+
+async function showQuickOpen() {
+  const existing = document.getElementById('quick-open-overlay');
+  if (existing) existing.remove();
+
+  if (!cachedFileList) {
+    cachedFileList = await window.api.listAllFiles();
+  }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'quick-open-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.35);display:flex;justify-content:center;padding-top:80px';
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#252526;border:1px solid #454545;border-radius:8px;width:520px;max-height:420px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.6)';
+  box.addEventListener('click', (e) => e.stopPropagation());
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.id = 'quick-open-input';
+  input.style.cssText = 'width:100%;padding:10px 12px;background:transparent;color:#ccc;border:none;border-bottom:1px solid #333;font-size:14px;outline:none;font-family:inherit;border-radius:8px 8px 0 0';
+  input.placeholder = 'Search files by name...';
+  box.appendChild(input);
+
+  const list = document.createElement('div');
+  list.id = 'quick-open-list';
+  list.style.cssText = 'overflow-y:auto;flex:1;min-height:0;padding:4px 0';
+  box.appendChild(list);
+
+  function render(filter) {
+    quickOpenSelected = -1;
+    list.innerHTML = '';
+    const pattern = (filter || '').toLowerCase();
+    let results = cachedFileList;
+    if (pattern) {
+      results = cachedFileList.filter(f => fuzzyMatch(pattern, f.toLowerCase()));
+    } else {
+      results = results.slice(0, 30);
+    }
+    if (results.length === 0) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'padding:8px 12px;font-size:12px;color:#666';
+      empty.textContent = 'No matching files.';
+      list.appendChild(empty);
+      return;
+    }
+    for (let i = 0; i < results.length; i++) {
+      const f = results[i];
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:4px 12px;font-size:12px;color:#ccc;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:8px';
+      row.dataset.path = f;
+      const name = f.split('/').pop();
+      const dir = f.substring(0, f.length - name.length);
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = name;
+      nameSpan.style.cssText = 'flex-shrink:0';
+      row.appendChild(nameSpan);
+      const dirSpan = document.createElement('span');
+      dirSpan.textContent = dir;
+      dirSpan.style.cssText = 'color:#666;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      row.appendChild(dirSpan);
+      row.addEventListener('click', () => {
+        overlay.remove();
+        openFileInEditor(f);
+      });
+      row.addEventListener('mouseenter', () => {
+        list.querySelectorAll('.quick-open-active').forEach(r => r.classList.remove('quick-open-active'));
+        row.classList.add('quick-open-active');
+        quickOpenSelected = i;
+      });
+      list.appendChild(row);
+    }
+  }
+
+  render('');
+
+  input.addEventListener('input', () => render(input.value));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { overlay.remove(); return; }
+    if (e.key === 'Enter') {
+      const active = list.querySelector('.quick-open-active');
+      if (active && active.dataset.path) {
+        overlay.remove();
+        openFileInEditor(active.dataset.path);
+      }
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const rows = list.querySelectorAll('div[data-path]');
+      if (rows.length === 0) return;
+      if (e.key === 'ArrowDown') quickOpenSelected = Math.min(quickOpenSelected + 1, rows.length - 1);
+      else quickOpenSelected = Math.max(quickOpenSelected - 1, 0);
+      rows.forEach(r => r.classList.remove('quick-open-active'));
+      rows[quickOpenSelected].classList.add('quick-open-active');
+      rows[quickOpenSelected].scrollIntoView({ block: 'nearest' });
+    }
+  });
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  input.focus();
+}
+
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
     e.preventDefault();
@@ -2112,5 +2746,9 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     if (Object.keys(tabs).length > 0) toggleTerminal();
     else termToggle.click();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+    e.preventDefault();
+    showQuickOpen();
   }
 });

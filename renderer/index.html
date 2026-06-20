@@ -36,10 +36,6 @@
       <div id="sidebar-git" class="sidebar-panel">
         <div id="git-sidebar-branches-section">
           <div class="git-sidebar-header">Branches</div>
-          <div id="git-branch-create-row">
-            <input id="git-new-branch-input" type="text" class="git-sidebar-input" placeholder="New branch name..." />
-            <button id="git-create-branch-btn" class="git-file-btn" title="Create branch">+</button>
-          </div>
           <div id="git-branch-list"></div>
         </div>
         <div class="sash sash-horizontal" id="sash-git-sidebar"></div>
@@ -62,11 +58,12 @@
       <div id="content-area">
         <div id="view-chats" class="main-view active">
           <div id="response"></div>
+          <div class="sash sash-vertical" id="sash-editor"></div>
           <div id="editor-panel">
             <div id="editor-header">
-              <span id="editor-file-name"></span>
+              <div id="editor-tabs"></div>
               <span id="editor-lang-status"></span>
-              <button id="editor-close-btn" title="Close editor">x</button>
+              <button id="editor-close-btn" title="Close editor">×</button>
             </div>
             <div id="editor"></div>
             <div id="editor-statusbar">
@@ -102,10 +99,12 @@
                     <button id="git-stage-all-btn" class="git-stage-all-btn" title="Stage all changes">+</button>
                   </div>
                   <div id="git-unstaged-list" class="git-file-list"></div>
-                  <div class="git-section-header" style="margin-top:8px">
-                    <span class="git-section-title">Untracked</span>
+                  <div id="git-untracked-section" style="display:none">
+                    <div class="git-section-header">
+                      <span class="git-section-title">Untracked</span>
+                    </div>
+                    <div id="git-untracked-list" class="git-file-list"></div>
                   </div>
-                  <div id="git-untracked-list" class="git-file-list"></div>
                 </div>
                 <div class="git-section" id="git-staged-section" style="display:none">
                   <div class="git-section-header">

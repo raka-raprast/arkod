@@ -532,6 +532,27 @@ ipcMain.handle('file:list-dir', async (_event, dirPath) => {
   return entries;
 });
 
+ipcMain.handle('file:list-recursive', async (_event, dir) => {
+  const results = [];
+  function walk(d, depth) {
+    if (depth > 8) return;
+    try {
+      const entries = fs.readdirSync(d, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+        const full = path.join(d, entry.name);
+        if (entry.isDirectory()) {
+          walk(full, depth + 1);
+        } else if (entry.isFile()) {
+          results.push(full);
+        }
+      }
+    } catch (_) {}
+  }
+  walk(dir || cwd, 0);
+  return results.sort();
+});
+
 ipcMain.handle('file:pick', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
@@ -1040,6 +1061,67 @@ ipcMain.handle('git:log', async () => {
           refs,
           author: parts[4],
           date: parts[5],
+        });
+      }
+    }
+    return commits;
+  } catch (_) { return []; }
+});
+
+ipcMain.handle('git:commit-files', async (_event, hash) => {
+  try {
+    const out = await execGit(['diff-tree', '--name-status', '-r', '--no-commit-id', hash]);
+    const files = [];
+    for (const line of out.split('\n')) {
+      if (!line.trim()) continue;
+      const status = line[0];
+      const filePath = line.slice(1).trim();
+      let label;
+      if (status === 'A') label = 'added';
+      else if (status === 'D') label = 'deleted';
+      else if (status === 'M') label = 'modified';
+      else if (status === 'R') label = 'renamed';
+      else label = status;
+      files.push({ status, label, path: filePath });
+    }
+    return files;
+  } catch (_) { return []; }
+});
+
+ipcMain.handle('git:commit-file-diff', async (_event, hash, filePath) => {
+  try {
+    return await execGit(['show', '--format=', hash, '--', filePath]);
+  } catch (_) { return ''; }
+});
+
+ipcMain.handle('git:branch-diff-files', async (_event, branch) => {
+  try {
+    const out = await execGit(['diff', '--name-only', branch]);
+    return out ? out.split('\n').filter(Boolean) : [];
+  } catch (_) { return []; }
+});
+
+ipcMain.handle('git:graph', async () => {
+  try {
+    const out = await execGit(['log', '--all', '--topo-order', '-n', '300',
+      '--format=%H||%P||%h||%s||%d||%an||%ar||%ct']);
+    const commits = [];
+    for (const line of out.split('\n')) {
+      if (!line.trim()) continue;
+      const parts = line.split('||');
+      if (parts.length >= 7) {
+        const refStr = (parts[3] || '').trim();
+        const refs = refStr ? refStr.replace(/[()]/g, '').split(',').map(s => s.trim()).filter(Boolean) : [];
+        const parents = (parts[1] || '').trim();
+        commits.push({
+          hash: parts[0],
+          parents: parents ? parents.split(' ') : [],
+          shortHash: parts[2],
+          message: parts[3],
+          refs,
+          author: parts[4],
+          date: parts[5],
+          timestamp: parseInt(parts[6], 10) * 1000,
         });
       }
     }
