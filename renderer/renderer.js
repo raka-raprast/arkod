@@ -196,6 +196,11 @@ let inFence = false;
 let fenceLang = '';
 let fenceEl = null;
 
+const TODO_RE = /^[\s]*[-*]\s+\[([ xX])\]\s+(.*)/;
+let inTodo = false;
+let todoEl = null;
+let todoItems = [];
+
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
@@ -420,6 +425,101 @@ function formatMdLine(line) {
   return html;
 }
 
+function buildTodoBlock() {
+  if (!todoEl) {
+    todoEl = document.createElement('div');
+    todoEl.className = 'todo-block';
+
+    const header = document.createElement('div');
+    header.className = 'todo-header';
+
+    const title = document.createElement('span');
+    title.className = 'todo-title';
+    title.textContent = 'Tasks';
+    header.appendChild(title);
+
+    const count = document.createElement('span');
+    count.className = 'todo-count';
+    header.appendChild(count);
+
+    todoEl._headerEl = header;
+    todoEl._countEl = count;
+    todoEl.appendChild(header);
+
+    const progressBar = document.createElement('div');
+    progressBar.className = 'todo-progress-bar';
+    const progressFill = document.createElement('div');
+    progressFill.className = 'todo-progress-fill';
+    progressBar.appendChild(progressFill);
+    todoEl._progressFill = progressFill;
+    todoEl.appendChild(progressBar);
+
+    const itemsContainer = document.createElement('div');
+    itemsContainer.className = 'todo-items';
+    todoEl._itemsContainer = itemsContainer;
+    todoEl.appendChild(itemsContainer);
+
+    responseEl.appendChild(todoEl);
+  }
+
+  const itemsContainer = todoEl._itemsContainer;
+  const existingCount = itemsContainer.children.length;
+  for (let i = existingCount; i < todoItems.length; i++) {
+    const item = todoItems[i];
+    const row = document.createElement('div');
+    row.className = 'todo-item' + (item.checked ? ' checked' : '');
+
+    const check = document.createElement('span');
+    check.className = 'todo-check';
+    check.textContent = item.checked ? '\u2713' : '';
+
+    const text = document.createElement('span');
+    text.className = 'todo-text';
+    text.textContent = item.text;
+
+    row.appendChild(check);
+    row.appendChild(text);
+    itemsContainer.appendChild(row);
+  }
+
+  const completed = todoItems.filter(t => t.checked).length;
+  const total = todoItems.length;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  todoEl._countEl.textContent = `${completed}/${total}`;
+  todoEl._progressFill.style.width = pct + '%';
+  if (completed === total && total > 0) {
+    todoEl._progressFill.classList.add('complete');
+  } else {
+    todoEl._progressFill.classList.remove('complete');
+  }
+}
+
+function closeTodoBlock() {
+  if (!inTodo) return;
+  inTodo = false;
+  todoEl = null;
+  todoItems = [];
+}
+
+function startTodoBlock() {
+  if (inTodo) return;
+  closeTodoBlock();
+  inTodo = true;
+  todoItems = [];
+  todoEl = null;
+}
+
+function appendTodoItem(line) {
+  const m = line.match(TODO_RE);
+  if (!m) return false;
+  const checked = m[1].toLowerCase() === 'x';
+  const text = m[2];
+  todoItems.push({ text, checked });
+  buildTodoBlock();
+  return true;
+}
+
 function appendFormattedLine(html) {
   if (inFence) {
     if (fenceEl) fenceEl.textContent += html;
@@ -459,7 +559,18 @@ function processTextChunk(chunk) {
     const trimmed = line.trim();
     if (trimmed.startsWith('```') || inFence) {
       processLine(line);
+    } else if (TODO_RE.test(trimmed)) {
+      if (!inTodo) {
+        textEl = null;
+        startTodoBlock();
+      }
+      appendTodoItem(trimmed);
+    } else if (trimmed === '' && inTodo) {
+    } else if (inTodo && line.startsWith(' ') && todoItems.length > 0) {
+      todoItems[todoItems.length - 1].text += '\n' + trimmed;
+      buildTodoBlock();
     } else {
+      if (inTodo) closeTodoBlock();
       appendFormattedLine(formatMdLine(line));
     }
   }
@@ -578,6 +689,7 @@ function resetResponseState() {
   stopThinking();
   flushTextBuf();
   closeFence();
+  closeTodoBlock();
   textEl = null;
   textBuf = '';
   setBusy(false);
@@ -814,6 +926,7 @@ window.addEventListener('editor:open', (e) => {
 });
 
 async function selectSession(id) {
+  console.log('[HISTORY] selectSession id:', id);
   activeSessionId = id;
   responseEl.innerHTML = '';
 
@@ -829,15 +942,71 @@ async function selectSession(id) {
 
   window.api.resumeSession(id);
   loadSessions();
-  await renderHistory(id);
+  const result = await window.api.sessionHistory(id);
+  const messages = Array.isArray(result) ? result : (result.messages || []);
+  const usage = result.usage || { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
+  const historyDiffs = Array.isArray(result) ? [] : (result.diffs || []);
+  console.log('[HISTORY] messages:', messages.length, 'diffs:', historyDiffs.length, 'usage:', usage);
+  for (const m of messages) {
+    const preview = m.text ? m.text.slice(0, 80) : (m.thinking ? m.thinking.slice(0, 80) : '');
+    console.log('[HISTORY] msg:', m.role, preview);
+  }
+  updateTokenDisplay(usage);
 
-  const diffs = sessionDiffs[id];
-  if (diffs) {
-    for (const d of diffs) {
+  for (const m of messages) {
+    if (m.role === 'user') {
+      appendPrompt(m.text);
+    } else {
+      if (m.thinkingBlocks && m.thinkingBlocks.length > 0) {
+        for (const tb of m.thinkingBlocks) {
+          if (!tb.thinking) continue;
+          const details = document.createElement('details');
+          details.className = 'thinking-block';
+          details.open = false;
+          const summary = document.createElement('summary');
+          if (tb.duration) {
+            const timeStr = tb.duration >= 1000 ? `${(tb.duration / 1000).toFixed(1)}s` : `${tb.duration}ms`;
+            summary.textContent = `Thought (${timeStr})`;
+          } else {
+            summary.textContent = 'Thought';
+          }
+          details.appendChild(summary);
+          details.appendChild(document.createTextNode(tb.thinking));
+          responseEl.appendChild(details);
+        }
+      } else if (m.thinking) {
+        const details = document.createElement('details');
+        details.className = 'thinking-block';
+        details.open = false;
+        const summary = document.createElement('summary');
+        summary.textContent = 'Thinking...';
+        details.appendChild(summary);
+        details.appendChild(document.createTextNode(m.thinking));
+        responseEl.appendChild(details);
+      }
+      if (m.text) {
+        renderBlock(m.text);
+        flushTextBuf();
+        closeFence();
+        closeTodoBlock();
+        textEl = null;
+        appendRaw('\n');
+      }
+    }
+  }
+
+  for (const d of historyDiffs) {
+    appendDiff(d.diff, d.relPath || d.filePath);
+  }
+
+  const liveDiffs = sessionDiffs[id];
+  if (liveDiffs) {
+    for (const d of liveDiffs) {
       appendDiff(d.diff, d.relPath || d.filePath);
     }
   }
 
+  scrollDown();
   promptEl.focus();
 }
 
@@ -856,49 +1025,29 @@ function renderBlock(text) {
     const trimmed = line.trim();
     if (trimmed.startsWith('```')) {
       processLine(line);
+    } else if (TODO_RE.test(trimmed)) {
+      if (!inTodo) startTodoBlock();
+      appendTodoItem(trimmed);
+    } else if (trimmed === '' && inTodo) {
+    } else if (inTodo && line.startsWith(' ') && todoItems.length > 0) {
+      todoItems[todoItems.length - 1].text += '\n' + trimmed;
+      buildTodoBlock();
     } else {
+      if (inTodo) closeTodoBlock();
       appendFormattedLine(formatMdLine(line));
     }
   }
   if (buf) {
     if (inFence) {
       appendText(buf);
+    } else if (TODO_RE.test(buf.trim())) {
+      if (!inTodo) startTodoBlock();
+      appendTodoItem(buf.trim());
     } else {
+      if (inTodo) closeTodoBlock();
       appendFormattedLine(formatMdLine(buf));
     }
   }
-}
-
-async function renderHistory(id) {
-  const result = await window.api.sessionHistory(id);
-  const messages = Array.isArray(result) ? result : (result.messages || []);
-  const usage = result.usage || { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
-  updateTokenDisplay(usage);
-
-  for (const m of messages) {
-    if (m.role === 'user') {
-      appendPrompt(m.text);
-    } else {
-      if (m.thinking) {
-        const details = document.createElement('details');
-        details.className = 'thinking-block';
-        details.open = false;
-        const summary = document.createElement('summary');
-        summary.textContent = 'Thinking...';
-        details.appendChild(summary);
-        details.appendChild(document.createTextNode(m.thinking));
-        responseEl.appendChild(details);
-      }
-      if (m.text) {
-        renderBlock(m.text);
-        flushTextBuf();
-        closeFence();
-        textEl = null;
-        appendRaw('\n');
-      }
-    }
-  }
-  scrollDown();
 }
 
 cwdBarEl.addEventListener('click', async () => {
@@ -938,6 +1087,25 @@ if (!promptEl || !responseEl) {
     activeSessionId = id;
   });
 
+  window.api.onThinkingReset((_ts) => {
+    stopThinking();
+    thinkingEl = null;
+  });
+
+  window.api.onThinkingEnd((duration) => {
+    if (thinkingEl) {
+      const summary = thinkingEl.querySelector('summary');
+      if (summary) {
+        const timeStr = duration >= 1000 ? `${(duration / 1000).toFixed(1)}s` : `${Math.round(duration) || 1}ms`;
+        const label = timeStr ? `Thought (${timeStr})` : 'Thought';
+        summary.innerHTML = `<span class="thinking-spinner stopped"></span> ${label}`;
+      }
+      thinkingEl.open = false;
+      thinkingEl = null;
+    }
+    thinkStartRaf = 0;
+  });
+
   window.api.onThinking((delta) => {
     if (!thinkingEl) {
       thinkingEl = document.createElement('details');
@@ -957,21 +1125,33 @@ if (!promptEl || !responseEl) {
   });
 
   window.api.onText((delta) => {
+    console.log('[LIVE] onText delta:', delta.length > 60 ? delta.slice(0, 60) + '...' : delta);
     stopThinking();
     processTextChunk(delta);
     scrollDown();
   });
 
   window.api.onChunk((chunk) => {
-    appendRaw(chunk);
+    console.log('[LIVE] onChunk:', chunk.length > 80 ? chunk.slice(0, 80) + '...' : chunk);
+    stopThinking();
+    processTextChunk(chunk);
     scrollDown();
   });
 
   window.api.onUsage((usage) => {
+    // console.log('[LIVE] usage:', usage);
     updateTokenDisplay(usage);
   });
 
+  window.api.onLog((data) => {
+    console.log('[CHAT LOG] prompt:', data.prompt);
+    console.log('[CHAT LOG] thinking:', data.thinking);
+    console.log('[CHAT LOG] response:', data.response);
+    console.log('[CHAT LOG] status:', data.status, data.detail);
+  });
+
   window.api.onDone(async (code) => {
+    console.log('[LIVE] onDone code:', code);
     resetResponseState();
     await loadSessions();
     if (activeSessionId && sessionsMap[activeSessionId]) {
@@ -988,12 +1168,14 @@ if (!promptEl || !responseEl) {
   });
 
   window.api.onError((msg) => {
+    console.log('[LIVE] onError:', msg);
     resetResponseState();
     appendError(msg);
     scrollDown();
   });
 
   window.api.onTimeout((msg) => {
+    console.log('[LIVE] onTimeout:', msg);
     resetResponseState();
     appendError(msg);
     scrollDown();
@@ -1021,6 +1203,10 @@ if (!promptEl || !responseEl) {
       if (!text) return;
       promptEl.value = '';
       promptEl.disabled = true;
+
+      if (responseEl.textContent === 'Arkod ready.\n') {
+        responseEl.innerHTML = '';
+      }
 
       appendPrompt(text);
       scrollDown();

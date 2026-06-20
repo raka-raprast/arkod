@@ -188,6 +188,7 @@ ipcMain.handle('project:resolve', (_event, projectKey) => {
 
 ipcMain.handle('session:history', async (_event, id) => {
   const messages = [];
+  const diffs = [];
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   try {
@@ -205,9 +206,16 @@ ipcMain.handle('session:history', async (_event, id) => {
               if (msg.role === 'toolResult') continue;
               const texts = (msg.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
               const thinkings = (msg.content || []).filter(c => c.type === 'thinking').map(c => c.thinking).join('');
+              const thinkingBlocks = (msg.content || []).filter(c => c.type === 'thinking').map(c => ({
+                thinking: c.thinking || '',
+                duration: c.duration || 0,
+              }));
               if (texts || thinkings) {
-                messages.push({ role: msg.role, text: texts, thinking: thinkings });
+                messages.push({ role: msg.role, text: texts, thinking: thinkings, thinkingBlocks });
               }
+            }
+            if (ev.type === 'diff' && ev.diff) {
+              diffs.push({ filePath: ev.filePath, relPath: ev.relPath, diff: ev.diff });
             }
             if (ev.message && ev.message.usage) {
               totalInputTokens = ev.message.usage.input || totalInputTokens;
@@ -219,7 +227,7 @@ ipcMain.handle('session:history', async (_event, id) => {
       }
     }
   } catch (_) {}
-  return { messages, usage: { input: totalInputTokens, output: totalOutputTokens, totalTokens: totalInputTokens + totalOutputTokens } };
+  return { messages, diffs, usage: { input: totalInputTokens, output: totalOutputTokens, totalTokens: totalInputTokens + totalOutputTokens } };
 });
 
 lspManager.on('diagnostics', (params) => {
@@ -357,6 +365,19 @@ function snapshotTextFiles(dir, maxDepth = 5) {
   return snaps;
 }
 
+function sessionFilePath(sessionId) {
+  const projectKey = cwd.replace(/\//g, '-');
+  const dir = path.join(SESSIONS_DIR, projectKey);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, sessionId + '.jsonl');
+}
+
+function appendToSessionFile(sessionId, event) {
+  try {
+    fs.appendFileSync(sessionFilePath(sessionId), JSON.stringify(event) + '\n');
+  } catch (_) {}
+}
+
 function checkFileChanges() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   for (const [filePath, before] of Object.entries(fileSnapshots)) {
@@ -366,7 +387,9 @@ function checkFileChanges() {
         const diff = unifiedDiff(before, after);
         if (diff) {
           const relPath = path.relative(cwd, filePath) || filePath;
-          mainWindow.webContents.send('llm:diff', { filePath, relPath, diff });
+          const diffEvent = { type: 'diff', filePath, relPath, diff, timestamp: Date.now() };
+          mainWindow.webContents.send('llm:diff', diffEvent);
+          if (activeSessionId) appendToSessionFile(activeSessionId, diffEvent);
         }
       }
     } catch (_) {}
@@ -389,27 +412,66 @@ ipcMain.handle('llm:send', (_event, prompt) => {
   const proc = spawn('omp', args, { cwd });
   let buf = '';
   let resolved = false;
+  let responseTextBuf = '';
+  let thinkingBuf = '';
+  let thinkBlocks = [];
+  let thinkActive = false;
+  let lastChunkHR = process.hrtime.bigint();
 
   const LLM_TIMEOUT = 300000;
-  const timeoutTimer = setTimeout(() => {
-    if (!resolved) {
-      resolved = true;
-      proc.kill();
-      busy = false;
-      mainWindow.webContents.send('llm:timeout', 'LLM request timed out after 5 minutes');
-    }
-  }, LLM_TIMEOUT);
 
-  function resolve(code) {
+  function finalize(status, detail) {
     if (resolved) return;
     resolved = true;
     clearTimeout(timeoutTimer);
     busy = false;
-    checkFileChanges();
-    mainWindow.webContents.send('llm:done', code);
+
+    console.log('[chat room] prompt:', prompt);
+    console.log('[chat room] thinking:', thinkingBuf);
+    console.log('[chat room] response:', responseTextBuf);
+    console.log('[chat room] status:', status, detail || '');
+
+    if (activeSessionId) {
+      appendToSessionFile(activeSessionId, {
+        type: 'message',
+        message: { role: 'user', content: [{ type: 'text', text: prompt }] },
+        timestamp: Date.now(),
+      });
+      if (thinkBlocks.length > 0 || responseTextBuf) {
+        const content = [];
+        for (const block of thinkBlocks) {
+          if (block.text) content.push({ type: 'thinking', thinking: block.text, duration: Math.round(block.duration) || 1 });
+        }
+        if (responseTextBuf) content.push({ type: 'text', text: responseTextBuf });
+        appendToSessionFile(activeSessionId, {
+          type: 'message',
+          message: { role: 'assistant', content },
+          timestamp: Date.now(),
+        });
+      }
+    }
+
+    mainWindow.webContents.send('llm:log', { prompt, thinking: thinkingBuf, response: responseTextBuf, status, detail });
+    if (status === 'done') {
+      checkFileChanges();
+      mainWindow.webContents.send('llm:done', detail);
+    } else if (status === 'timeout') {
+      mainWindow.webContents.send('llm:timeout', detail);
+    } else {
+      mainWindow.webContents.send('llm:error', detail);
+    }
   }
 
+  const timeoutTimer = setTimeout(() => {
+    proc.kill();
+    finalize('timeout', 'LLM request timed out after 5 minutes');
+  }, LLM_TIMEOUT);
+
   proc.stdout.on('data', (data) => {
+    const now = process.hrtime.bigint();
+    const deltaMs = Number(now - lastChunkHR) / 1e6;
+    lastChunkHR = now;
+    let chunkTimeUsed = false;
     buf += data.toString();
     const lines = buf.split('\n');
     buf = lines.pop();
@@ -423,10 +485,51 @@ ipcMain.handle('llm:send', (_event, prompt) => {
         }
         if (ev.type === 'message_update') {
           const inner = ev.assistantMessageEvent;
-          if (inner.type === 'thinking_delta' && inner.delta) {
-            mainWindow.webContents.send('llm:thinking', inner.delta);
-          } else if (inner.type === 'text_delta' && inner.delta) {
-            mainWindow.webContents.send('llm:text', inner.delta);
+          if (inner) {
+            if (inner.type === 'thinking_start') {
+              thinkActive = true;
+              thinkBlocks.push({ text: '', duration: 0 });
+              mainWindow.webContents.send('llm:thinking-reset', Date.now());
+            } else if (inner.type === 'thinking_end') {
+              if (thinkActive && !chunkTimeUsed) {
+                thinkBlocks[thinkBlocks.length - 1].duration += deltaMs;
+                chunkTimeUsed = true;
+              }
+              thinkActive = false;
+              if (thinkBlocks.length > 0) {
+                const block = thinkBlocks[thinkBlocks.length - 1];
+                mainWindow.webContents.send('llm:thinking-end', block.duration);
+              } else {
+                mainWindow.webContents.send('llm:thinking-end', 0);
+              }
+            } else if (inner.type === 'thinking_delta' && inner.delta) {
+              const t = typeof inner.delta === 'string' ? inner.delta : inner.delta.thinking || '';
+              if (t) {
+                thinkingBuf += t;
+                if (thinkBlocks.length > 0) thinkBlocks[thinkBlocks.length - 1].text += t;
+                if (thinkActive && !chunkTimeUsed) {
+                  thinkBlocks[thinkBlocks.length - 1].duration += deltaMs;
+                  chunkTimeUsed = true;
+                }
+                mainWindow.webContents.send('llm:thinking', t);
+              }
+            } else if (inner.type === 'text_delta' && inner.delta) {
+              const t = typeof inner.delta === 'string' ? inner.delta : inner.delta.text || '';
+              if (t) { responseTextBuf += t; mainWindow.webContents.send('llm:text', t); }
+            } else if (inner.type === 'content_block_delta' && inner.delta && typeof inner.delta === 'object') {
+              if (inner.delta.type === 'thinking_delta' && inner.delta.thinking) {
+                thinkingBuf += inner.delta.thinking;
+                if (thinkBlocks.length > 0) thinkBlocks[thinkBlocks.length - 1].text += inner.delta.thinking;
+                if (thinkActive && !chunkTimeUsed) {
+                  thinkBlocks[thinkBlocks.length - 1].duration += deltaMs;
+                  chunkTimeUsed = true;
+                }
+                mainWindow.webContents.send('llm:thinking', inner.delta.thinking);
+              } else if (inner.delta.type === 'text_delta' && inner.delta.text) {
+                responseTextBuf += inner.delta.text;
+                mainWindow.webContents.send('llm:text', inner.delta.text);
+              }
+            }
           }
         }
         if (ev.type === 'tool_use') {
@@ -442,25 +545,24 @@ ipcMain.handle('llm:send', (_event, prompt) => {
           mainWindow.webContents.send('llm:usage', ev.message.usage);
         }
       } catch (_) {
+        responseTextBuf += line;
         mainWindow.webContents.send('llm:chunk', line);
       }
     }
   });
 
   proc.stderr.on('data', (data) => {
-    mainWindow.webContents.send('llm:chunk', data.toString());
+    const s = data.toString();
+    responseTextBuf += s;
+    mainWindow.webContents.send('llm:chunk', s);
   });
 
   proc.on('close', (code) => {
-    resolve(code);
+    finalize('done', code);
   });
 
   proc.on('error', (err) => {
-    if (resolved) return;
-    resolved = true;
-    clearTimeout(timeoutTimer);
-    busy = false;
-    mainWindow.webContents.send('llm:error', err.code === 'ENOENT' ? 'omp command not found. Is it installed?' : err.message);
+    finalize('error', err.code === 'ENOENT' ? 'omp command not found. Is it installed?' : err.message);
   });
 });
 

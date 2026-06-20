@@ -658,6 +658,7 @@ body.dragging .sash.active {
 .thinking-spinner.stopped {
   animation: none;
   border-top-color: #555;
+  display: none;
 }
 
 @keyframes spin {
@@ -938,6 +939,83 @@ body.dragging .sash.active {
   font-size: 14px;
   font-family: inherit;
   outline: none;
+}
+
+.todo-block {
+  margin: 8px 0;
+  border: 1px solid #333;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #1e1e1e;
+}
+.todo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #333;
+  background: #252526;
+}
+.todo-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ccc;
+}
+.todo-count {
+  font-size: 11px;
+  color: #888;
+  font-family: 'SF Mono', Monaco, Menlo, monospace;
+}
+.todo-progress-bar {
+  height: 3px;
+  background: #333;
+  flex-shrink: 0;
+}
+.todo-progress-fill {
+  height: 100%;
+  background: #569cd6;
+  transition: width 0.3s ease;
+  border-radius: 0 2px 2px 0;
+}
+.todo-progress-fill.complete {
+  background: #4ec94e;
+}
+.todo-items {
+  padding: 4px 0;
+}
+.todo-item {
+  display: flex;
+  align-items: baseline;
+  padding: 3px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  gap: 8px;
+}
+.todo-check {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 1px solid #555;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  margin-top: 2px;
+  color: #4ec94e;
+}
+.todo-item.checked .todo-check {
+  background: #1a3a1a;
+  border-color: #4ec94e;
+}
+.todo-item.checked .todo-text {
+  color: #666;
+  text-decoration: line-through;
+}
+.todo-text {
+  color: #ccc;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 #prompt:focus {
