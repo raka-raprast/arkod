@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   send: (prompt) => ipcRenderer.invoke('llm:send', prompt),
+  getVersion: () => ipcRenderer.invoke('app:version'),
   getCwd: () => ipcRenderer.invoke('cwd:get'),
   getModel: () => ipcRenderer.invoke('model:get'),
   setModel: (model) => ipcRenderer.invoke('model:set', model),

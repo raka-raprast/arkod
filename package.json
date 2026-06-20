@@ -1,17 +1,48 @@
 {
   "name": "oh-my-pi",
-  "version": "0.1.0",
+  "version": "0.0.1-alpha",
   "description": "Desktop LLM assistant — like Codex for macOS",
   "main": "main.js",
   "scripts": {
     "start": "npm run build && electron .",
     "dev": "npm run build && electron .",
     "build": "node build.mjs",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
+  },
+  "build": {
+    "appId": "com.arkod.app",
+    "productName": "Arkod",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] }
+      ]
+    },
+    "dmg": {
+      "title": "Arkod ${version}",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "diff.js",
+      "build.mjs",
+      "package.json",
+      "renderer/**/*",
+      "lsp/**/*",
+      "node_modules/**/*"
+    ],
+    "extraResources": []
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",
     "electron": "^34.5.8",
+    "electron-builder": "^26.15.3",
     "electron-reload": "^2.0.0-alpha.1",
     "esbuild": "^0.25.0"
   },

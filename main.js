@@ -173,6 +173,8 @@ app.on('activate', () => {
 
 ipcMain.handle('cwd:get', () => cwd);
 
+ipcMain.handle('app:version', () => app.getVersion());
+
 ipcMain.handle('model:get', () => {
   try {
     const cfgPath = path.join(os.homedir(), '.omp', 'agent', 'config.yml');
@@ -1185,8 +1187,8 @@ ipcMain.handle('git:graph', async () => {
     for (const line of out.split('\n')) {
       if (!line.trim()) continue;
       const parts = line.split('||');
-      if (parts.length >= 7) {
-        const refStr = (parts[3] || '').trim();
+      if (parts.length >= 8) {
+        const refStr = (parts[4] || '').trim();
         const refs = refStr ? refStr.replace(/[()]/g, '').split(',').map(s => s.trim()).filter(Boolean) : [];
         const parents = (parts[1] || '').trim();
         commits.push({
@@ -1195,9 +1197,9 @@ ipcMain.handle('git:graph', async () => {
           shortHash: parts[2],
           message: parts[3],
           refs,
-          author: parts[4],
-          date: parts[5],
-          timestamp: parseInt(parts[6], 10) * 1000,
+          author: parts[5],
+          date: parts[6],
+          timestamp: parseInt(parts[7], 10) * 1000,
         });
       }
     }

@@ -62,6 +62,7 @@ let thinkingEl = null;
 let textBuf = '';
 let textEl = null;
 let activeSessionId = null;
+let appVersion = '';
 
 sashSidebar.classList.add('visible');
 sashInner.classList.add('visible');
@@ -171,8 +172,8 @@ function toggleTerminal() {
     terminalPanel.style.height = '0px';
     terminalPanel.classList.remove('open');
     sashTerminal.classList.remove('visible');
-    promptEl.focus();
-  }
+  promptEl.focus();
+}
 }
 
 function showConfirm(message, danger) {
@@ -268,6 +269,11 @@ function switchSidebarTab(tabName) {
       refreshAuthList();
       const settingsModelEl = document.getElementById('settings-model');
       if (settingsModelEl && modelInfoEl) settingsModelEl.textContent = modelInfoEl.textContent;
+      const settingsVersionEl = document.getElementById('settings-version');
+      if (settingsVersionEl && appVersion) settingsVersionEl.textContent = appVersion;
+      else if (settingsVersionEl) {
+        window.api.getVersion().then(v => { settingsVersionEl.textContent = v; });
+      }
     }
     if (tabName === 'git') {
       initGitTab();
@@ -812,7 +818,7 @@ function showWelcome() {
   responseEl.innerHTML = '';
   const wrap = document.createElement('div');
   wrap.className = 'welcome-hero';
-  wrap.innerHTML = '<div class="welcome-title">Arkod</div><div class="welcome-sub">Code, chat, ship.</div>';
+  wrap.innerHTML = '<div class="welcome-title">Arkod</div><div class="welcome-sub">Code, chat, ship.</div><div class="welcome-version">v' + appVersion + '</div>';
   responseEl.appendChild(wrap);
 }
 
@@ -1398,8 +1404,10 @@ if (authSaveBtn) {
 if (!promptEl || !responseEl) {
   console.error('Missing elements: prompt=', !!promptEl, 'response=', !!responseEl);
 } else {
-  showWelcome();
-  setTimeout(() => loadSessions(), 0);
+  (async () => {
+    appVersion = await window.api.getVersion();
+    showWelcome();
+    loadSessions();
 
   window.api.onSession((id, _model) => {
     activeSessionId = id;
@@ -1653,6 +1661,7 @@ if (!promptEl || !responseEl) {
   });
 
   promptEl.focus();
+  })();
 }
 
 // ── Git integration ──
