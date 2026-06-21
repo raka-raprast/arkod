@@ -1290,8 +1290,7 @@ body.dragging .sash.active {
   white-space: pre-wrap;
 }
 
-.user-prompt::before {
-  content: 'You';
+.user-prompt-label {
   display: block;
   font-size: 11px;
   color: var(--accent-text);
@@ -1587,6 +1586,27 @@ body.dragging .sash.active {
 
 #busy-indicator.busy-hidden {
   display: none;
+}
+
+.cancel-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 4px 10px;
+  background: none;
+  color: var(--text-muted);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.cancel-btn:hover {
+  background: var(--danger-hover);
+  color: var(--error);
+  border-color: var(--error-border);
 }
 
 #token-bar {
@@ -1958,10 +1978,20 @@ body.dragging .sash.active {
   cursor: pointer;
   border-radius: 3px;
   gap: 8px;
+  user-select: none;
 }
 
 .git-file-row:hover {
   background: var(--bg-hover);
+}
+
+.git-file-row.selected {
+  background: var(--bg-accent);
+  color: var(--text-bright);
+}
+
+.git-file-row.selected:hover {
+  background: var(--bg-accent);
 }
 
 .git-file-row.git-untracked-row {
@@ -2005,6 +2035,54 @@ body.dragging .sash.active {
 
 .git-file-row:hover .git-file-actions {
   visibility: visible;
+}
+
+.git-selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-accent);
+  border-bottom: 1px solid var(--accent);
+  font-size: 11px;
+}
+
+.git-selection-action {
+  background: var(--accent-bg);
+  color: var(--text-bright);
+  border: none;
+  border-radius: 3px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.git-selection-action:hover {
+  background: var(--accent-hover);
+}
+
+.git-selection-danger {
+  background: var(--danger-bg);
+}
+
+.git-selection-danger:hover {
+  background: var(--danger-bg-hover);
+}
+
+.git-selection-clear {
+  background: none;
+  border: 1px solid var(--border-light);
+  color: var(--text-muted);
+  padding: 2px 6px;
+  margin-left: auto;
+}
+
+.git-selection-clear:hover {
+  background: var(--border-light);
+  color: var(--text-bright);
 }
 
 .git-file-btn {
@@ -2584,4 +2662,89 @@ body.dragging .sash.active {
 
 #sash-git-sidebar {
   /* Uses .sash.visible pattern */
+}
+
+/* ── @mention system ── */
+
+.mention-popup {
+  position: fixed;
+  z-index: 3000;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--overlay-border);
+  border-radius: 8px;
+  padding: 4px 0;
+  min-width: 280px;
+  max-width: 480px;
+  max-height: 280px;
+  overflow-y: auto;
+  box-shadow: var(--glass-shadow);
+  font-size: 12px;
+  display: none;
+}
+
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--text-light);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.mention-item:hover,
+.mention-item.active {
+  background: var(--bg-accent);
+  color: var(--text-bright);
+}
+
+.mention-item-name {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.mention-item-dir {
+  color: var(--text-dim);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mention-item-dim {
+  color: var(--text-dim);
+  font-style: italic;
+  cursor: default;
+}
+
+.mention-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--error);
+  background: var(--error-bg);
+  border-top: 1px solid var(--error-border);
+  flex-shrink: 0;
+}
+
+.mention-badge {
+  display: inline-block;
+  background: var(--bg-accent);
+  color: var(--accent-text);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 6px;
+  margin: 0 2px;
+  font-size: 12px;
+  line-height: 1.6;
+  vertical-align: baseline;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mention-badge:hover {
+  background: var(--accent);
+  color: var(--text-bright);
 }

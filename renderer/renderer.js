@@ -399,15 +399,18 @@ function escapeHtml(text) {
 
 let busyState = false;
 let spinnerInterval = null;
+let cancelBtn = null;
 
 function setBusy(busy) {
   busyState = busy;
   if (busy) {
     busyIndicator.className = 'busy-active';
     startSpinner();
+    if (cancelBtn) cancelBtn.style.display = '';
   } else {
     busyIndicator.className = 'busy-hidden';
     stopSpinner();
+    if (cancelBtn) cancelBtn.style.display = 'none';
   }
 }
 
@@ -890,7 +893,30 @@ function resetResponseState() {
 function appendPrompt(text) {
   const div = document.createElement('div');
   div.className = 'user-prompt';
-  div.textContent = text;
+  div.innerHTML = '<span class="user-prompt-label">You</span>';
+  let lastIndex = 0;
+  const re = /@([^\s@]+)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > lastIndex) {
+      div.appendChild(document.createTextNode(text.slice(lastIndex, m.index)));
+    }
+    const chip = document.createElement('span');
+    chip.className = 'mention-badge';
+    chip.textContent = '@' + m[1];
+    chip.title = 'Click to open file';
+    const fileP = m[1];
+    chip.addEventListener('click', async () => {
+      const cwd = await window.api.getCwd();
+      const fullPath = fileP.startsWith('/') ? fileP : cwd + '/' + fileP;
+      openFileInEditor(fullPath);
+    });
+    div.appendChild(chip);
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < text.length) {
+    div.appendChild(document.createTextNode(text.slice(lastIndex)));
+  }
   responseEl.appendChild(div);
 }
 
@@ -1271,6 +1297,22 @@ function showContextMenu(x, y, targetPath, isDir) {
   }
   addItem('New File…', () => showInlineInput(dirPath, 'file'));
   addItem('New Folder…', () => showInlineInput(dirPath, 'dir'));
+  if (!isDir) {
+    addItem('Mention in Chat', () => {
+      const cwd = window.api.getCwd();
+      cwd.then(c => {
+        const rel = targetPath.startsWith(c) ? targetPath.slice(c.length).replace(/^\//, '') : targetPath;
+        promptEl.focus();
+        const pos = promptEl.selectionStart;
+        const before = promptEl.value.slice(0, pos);
+        const after = promptEl.value.slice(pos);
+        const mention = '@' + rel + ' ';
+        promptEl.value = before + mention + after;
+        promptEl.selectionStart = promptEl.selectionEnd = pos + mention.length;
+        promptEl.dispatchEvent(new Event('input'));
+      });
+    });
+  }
   document.body.appendChild(menu);
   const close = (e) => {
     if (!menu.contains(e.target)) { hideContextMenu(); document.removeEventListener('mousedown', close); }
@@ -1922,6 +1964,15 @@ if (!promptEl || !responseEl) {
     scrollDown();
   });
 
+  window.api.onCancelled((msg) => {
+    console.log('[LIVE] onCancelled:', msg);
+    resetResponseState();
+    appendRaw('\n[Cancelled]\n');
+    scrollDown();
+    loadSessions();
+    refreshFileTree();
+  });
+
   window.api.onDiff((data) => {
     if (data && data.diff) {
       if (activeSessionId) {
@@ -1973,11 +2024,218 @@ if (!promptEl || !responseEl) {
     if (activeSidebarTab === 'git') refreshGitUI();
   });
 
+  // ── @mention system ──
+
+  const mentionPopup = document.createElement('div');
+  mentionPopup.id = 'mention-popup';
+  mentionPopup.className = 'mention-popup';
+  document.body.appendChild(mentionPopup);
+
+  const mentionError = document.createElement('div');
+  mentionError.id = 'mention-error';
+  mentionError.className = 'mention-error';
+  mentionError.style.display = 'none';
+  const tokenBar = document.getElementById('token-bar');
+  if (tokenBar) tokenBar.before(mentionError);
+
+  cancelBtn = document.createElement('button');
+  cancelBtn.id = 'cancel-btn';
+  cancelBtn.className = 'cancel-btn';
+  cancelBtn.textContent = 'Stop';
+  cancelBtn.title = 'Stop generating (Esc)';
+  cancelBtn.style.display = 'none';
+  cancelBtn.addEventListener('click', async () => {
+    const ok = await showConfirm('Stop the AI response?');
+    if (ok) window.api.cancel();
+  });
+  const inputBar = document.getElementById('input-bar');
+  if (inputBar) inputBar.appendChild(cancelBtn);
+
+  let mentionActive = false;
+  let mentionQuery = '';
+  let mentionResults = [];
+  let mentionSelectedIndex = 0;
+  let mentionFiles = [];
+  let mentionStartPos = 0;
+  let mentionDebounce = null;
+  let mentionQueryId = 0;
+
+  function hideMentionPopup() {
+    mentionActive = false;
+    mentionPopup.style.display = 'none';
+    mentionQuery = '';
+    mentionResults = [];
+    mentionSelectedIndex = 0;
+    if (mentionDebounce) { clearTimeout(mentionDebounce); mentionDebounce = null; }
+  }
+
+  function doMentionSearch(query, qid) {
+    window.api.searchProjectFiles(query).then(files => {
+      if (!mentionActive || qid !== mentionQueryId) return;
+      mentionFiles = files;
+      renderMentionResults();
+    });
+  }
+
+  function showMentionPopup(query) {
+    mentionActive = true;
+    mentionQuery = query;
+    mentionSelectedIndex = 0;
+    mentionQueryId++;
+    const qid = mentionQueryId;
+    doMentionSearch(query, qid);
+  }
+
+  function renderMentionResults() {
+    mentionPopup.innerHTML = '';
+
+    const displayResults = [];
+    if (mentionFiles.length === 0) {
+      displayResults.push({ type: 'noresults', label: mentionQuery ? 'No files match "' + mentionQuery + '"' : 'No files in project' });
+    } else {
+      for (const f of mentionFiles) {
+        displayResults.push({ type: 'file', label: f.relPath, path: f.path, name: f.name });
+      }
+    }
+
+    mentionSelectedIndex = Math.min(mentionSelectedIndex, Math.max(0, displayResults.length - 1));
+    const sliced = displayResults.slice(0, 16);
+    mentionResults = sliced;
+
+    mentionPopup.style.display = 'block';
+    const rect = promptEl.getBoundingClientRect();
+    const coords = getCaretCoordinates(promptEl, mentionStartPos);
+    let popupTop = rect.top + coords.top + 22;
+    let popupLeft = rect.left + coords.left;
+    if (popupTop + 300 > window.innerHeight) popupTop = rect.top - Math.min(300, coords.top + 10);
+    if (popupLeft + 360 > window.innerWidth) popupLeft = window.innerWidth - 370;
+    if (popupLeft < 8) popupLeft = 8;
+    if (popupTop < 40) popupTop = 40;
+    mentionPopup.style.top = popupTop + 'px';
+    mentionPopup.style.left = popupLeft + 'px';
+
+    for (let i = 0; i < sliced.length; i++) {
+      const r = sliced[i];
+      const item = document.createElement('div');
+      item.className = 'mention-item' + (i === mentionSelectedIndex ? ' active' : '');
+      item.dataset.index = i;
+
+      if (r.type === 'noresults') {
+        item.className += ' mention-item-dim';
+        item.textContent = r.label;
+      } else {
+        const name = document.createElement('span');
+        name.className = 'mention-item-name';
+        name.textContent = r.name;
+        item.appendChild(name);
+        const dir = document.createElement('span');
+        dir.className = 'mention-item-dir';
+        const dirpath = r.label.substring(0, r.label.lastIndexOf('/'));
+        dir.textContent = dirpath ? '  ' + dirpath : '';
+        item.appendChild(dir);
+      }
+
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        selectMentionResult(i);
+      });
+      mentionPopup.appendChild(item);
+    }
+  }
+
+  function selectMentionResult(index) {
+    if (index < 0 || index >= mentionResults.length) return;
+    const r = mentionResults[index];
+    if (r.type === 'noresults') return;
+    if (r.type === 'file') {
+      insertMention(r.label);
+    }
+    hideMentionPopup();
+    promptEl.focus();
+  }
+
+  function insertMention(filePath) {
+    const before = promptEl.value.slice(0, mentionStartPos);
+    const after = promptEl.value.slice(promptEl.selectionStart);
+    const mention = '@' + filePath;
+    promptEl.value = before + mention + after;
+    const newPos = mentionStartPos + mention.length;
+    promptEl.selectionStart = newPos;
+    promptEl.selectionEnd = newPos;
+    promptEl.dispatchEvent(new Event('input'));
+  }
+
+  function parseMentions(text) {
+    const re = /@(\S+)/g;
+    const mentions = [];
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const fp = m[1];
+      if (!fp.includes('@')) mentions.push(fp);
+    }
+    return mentions;
+  }
+
+  function getCaretCoordinates(textarea, position) {
+    const mirror = document.createElement('div');
+    const cs = window.getComputedStyle(textarea, null);
+    const props = ['fontSize', 'fontFamily', 'padding', 'border', 'boxSizing', 'whiteSpace', 'wordWrap', 'overflowWrap', 'lineHeight', 'letterSpacing'];
+    for (const p of props) mirror.style[p] = cs[p];
+    mirror.style.cssText += ';position:absolute;top:-9999px;left:-9999px;visibility:hidden;height:auto;width:' + textarea.clientWidth + 'px;overflow:hidden';
+    mirror.textContent = textarea.value.slice(0, position).replace(/\n$/, '\n\u200b');
+    document.body.appendChild(mirror);
+    const span = document.createElement('span');
+    span.textContent = '\u200b';
+    mirror.appendChild(span);
+    const coord = { top: span.offsetTop, left: span.offsetLeft };
+    document.body.removeChild(mirror);
+    return coord;
+  }
+
   promptEl.addEventListener('keydown', async (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (mentionActive) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        mentionSelectedIndex = Math.min(mentionSelectedIndex + 1, mentionResults.length - 1);
+        renderMentionResults();
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        mentionSelectedIndex = Math.max(mentionSelectedIndex - 1, 0);
+        renderMentionResults();
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        selectMentionResult(mentionSelectedIndex);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        hideMentionPopup();
+        return;
+      }
+      if (e.key === 'Backspace' && mentionQuery === '') {
+        e.preventDefault();
+        const before = promptEl.value.slice(0, mentionStartPos);
+        const after = promptEl.value.slice(promptEl.selectionStart);
+        promptEl.value = before + after;
+        promptEl.selectionStart = promptEl.selectionEnd = mentionStartPos;
+        hideMentionPopup();
+        promptEl.dispatchEvent(new Event('input'));
+        return;
+      }
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey && !mentionActive) {
       e.preventDefault();
       const text = promptEl.value.trim();
       if (!text) return;
+
+      const mentions = parseMentions(text);
+      mentionError.style.display = 'none';
+
       promptEl.value = '';
       promptEl.disabled = true;
 
@@ -1989,7 +2247,76 @@ if (!promptEl || !responseEl) {
       scrollDown();
 
       setBusy(true);
-      window.api.send(text);
+      window.api.send({ text, mentions });
+    }
+  });
+
+  promptEl.addEventListener('input', () => {
+    mentionError.style.display = 'none';
+
+    const pos = promptEl.selectionStart;
+    const text = promptEl.value;
+    const before = text.slice(0, pos);
+    const atMatch = before.match(/@([^\s@]*)$/);
+    if (atMatch) {
+      mentionStartPos = pos - atMatch[0].length;
+      const query = atMatch[1];
+      mentionSelectedIndex = 0;
+      if (!mentionActive) {
+        mentionQuery = query;
+        showMentionPopup(query);
+      } else {
+        mentionQuery = query;
+        mentionQueryId++;
+        const qid = mentionQueryId;
+        if (mentionDebounce) clearTimeout(mentionDebounce);
+        mentionDebounce = setTimeout(() => {
+          mentionDebounce = null;
+          if (!mentionActive) return;
+          doMentionSearch(mentionQuery, qid);
+        }, 100);
+      }
+    } else {
+      if (mentionActive) hideMentionPopup();
+    }
+  });
+
+  promptEl.addEventListener('blur', () => {
+    setTimeout(() => {
+      if (!mentionPopup.contains(document.activeElement)) {
+        hideMentionPopup();
+      }
+    }, 200);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (mentionActive && !mentionPopup.contains(e.target) && e.target !== promptEl) {
+      hideMentionPopup();
+    }
+  });
+
+  // Ctrl+Shift+F: quick mention file picker
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && busyState) {
+      e.preventDefault();
+      showConfirm('Stop the AI response?').then(ok => {
+        if (ok) window.api.cancel();
+      });
+      return;
+    }
+    if (e.ctrlKey && e.shiftKey && e.key === 'F') {
+      e.preventDefault();
+      promptEl.focus();
+      const pos = promptEl.selectionStart;
+      mentionStartPos = pos;
+      hideMentionPopup();
+      if (mentionDebounce) { clearTimeout(mentionDebounce); mentionDebounce = null; }
+      mentionQueryId++;
+      const qid = mentionQueryId;
+      mentionActive = true;
+      mentionQuery = '';
+      mentionSelectedIndex = 0;
+      doMentionSearch('', qid);
     }
   });
 
@@ -2002,6 +2329,10 @@ if (!promptEl || !responseEl) {
 let gitInitialized = false;
 let gitRepo = false;
 let checkoutBusy = false;
+let gitSelectedUnstaged = new Set();
+let gitSelectedStaged = new Set();
+let gitLastClickedIndex = -1;
+let gitLastClickedIsStaged = false;
 
 function showGitLoading() {
   if (!gitContent) return;
@@ -2295,6 +2626,15 @@ async function initGitTab() {
 
   gitNotRepo.style.display = 'none';
   gitContent.style.display = 'flex';
+
+  if (!document.getElementById('git-selection-bar')) {
+    const selBar = document.createElement('div');
+    selBar.id = 'git-selection-bar';
+    selBar.className = 'git-selection-bar';
+    selBar.style.display = 'none';
+    gitUnstagedList.parentNode.insertBefore(selBar, gitUnstagedList);
+  }
+
   await refreshGitUI();
 }
 
@@ -2349,6 +2689,9 @@ async function renderGitStatus() {
   gitUnstagedList.innerHTML = '';
   gitStagedList.innerHTML = '';
 
+  gitSelectedUnstaged.clear();
+  gitSelectedStaged.clear();
+
   for (const f of unstaged) {
     const row = gitFileRow(f, false);
     gitUnstagedList.appendChild(row);
@@ -2363,6 +2706,7 @@ async function renderGitStatus() {
   document.getElementById('git-commit-area').style.display = staged.length > 0 ? '' : 'none';
   if (gitDiscardAllBtn) gitDiscardAllBtn.disabled = unstaged.length === 0;
   if (gitStageAllBtn) gitStageAllBtn.disabled = unstaged.length === 0;
+  updateGitSelectionBar();
 }
 
 function makeCollapsible(headerEl, listEl) {
@@ -2390,6 +2734,48 @@ function makeCollapsible(headerEl, listEl) {
 function gitFileRow(file, isStaged) {
   const row = document.createElement('div');
   row.className = 'git-file-row';
+  row.dataset.file = file.path;
+  row.dataset.staged = isStaged ? '1' : '0';
+
+  row.addEventListener('click', (e) => {
+    const sel = isStaged ? gitSelectedStaged : gitSelectedUnstaged;
+    const other = isStaged ? gitSelectedUnstaged : gitSelectedStaged;
+    const rows = Array.from((isStaged ? gitStagedList : gitUnstagedList).children);
+    const idx = rows.indexOf(row);
+
+    if (e.shiftKey && gitLastClickedIndex >= 0 && gitLastClickedIsStaged === isStaged) {
+      const start = Math.min(gitLastClickedIndex, idx);
+      const end = Math.max(gitLastClickedIndex, idx);
+      if (!(e.ctrlKey || e.metaKey)) { sel.clear(); other.clear(); }
+      for (let i = start; i <= end; i++) {
+        const r = rows[i];
+        if (r) { sel.add(r.dataset.file); r.classList.add('selected'); }
+      }
+    } else if (e.ctrlKey || e.metaKey) {
+      if (sel.has(file.path)) {
+        sel.delete(file.path);
+        row.classList.remove('selected');
+      } else {
+        sel.add(file.path);
+        row.classList.add('selected');
+      }
+    } else {
+      if (sel.size === 1 && sel.has(file.path)) {
+        sel.clear();
+        row.classList.remove('selected');
+      } else {
+        sel.clear();
+        other.clear();
+        rows.forEach(r => r.classList.remove('selected'));
+        sel.add(file.path);
+        row.classList.add('selected');
+      }
+      gitLastClickedIndex = idx;
+      gitLastClickedIsStaged = isStaged;
+    }
+
+    updateGitSelectionBar();
+  });
 
   const icon = document.createElement('span');
   icon.className = 'git-file-icon';
@@ -2453,6 +2839,75 @@ function gitFileRow(file, isStaged) {
 
   row.appendChild(actions);
   return row;
+}
+
+function updateGitSelectionBar() {
+  const bar = document.getElementById('git-selection-bar');
+  if (!bar) return;
+
+  const unstagedCount = gitSelectedUnstaged.size;
+  const stagedCount = gitSelectedStaged.size;
+
+  if (unstagedCount === 0 && stagedCount === 0) {
+    bar.style.display = 'none';
+    return;
+  }
+
+  bar.style.display = '';
+  bar.innerHTML = '';
+  bar.className = 'git-selection-bar';
+
+  if (unstagedCount > 0) {
+    const stageBtn = document.createElement('button');
+    stageBtn.className = 'git-selection-action';
+    stageBtn.textContent = 'Stage ' + unstagedCount + ' file' + (unstagedCount > 1 ? 's' : '');
+    stageBtn.addEventListener('click', async () => {
+      bar.style.display = 'none';
+      for (const fp of gitSelectedUnstaged) await window.api.gitStage(fp);
+      refreshGitUI();
+    });
+    bar.appendChild(stageBtn);
+
+    const discardBtn = document.createElement('button');
+    discardBtn.className = 'git-selection-action git-selection-danger';
+    discardBtn.textContent = 'Discard ' + unstagedCount;
+    discardBtn.addEventListener('click', async () => {
+      if (!confirm('Discard ' + unstagedCount + ' selected file' + (unstagedCount > 1 ? 's' : '') + '? This cannot be undone.')) return;
+      bar.style.display = 'none';
+      for (const fp of gitSelectedUnstaged) {
+        const row = gitUnstagedList.querySelector('[data-file="' + fp.replace(/"/g, '\\"') + '"]');
+        const isUntracked = row ? row.querySelector('.git-file-icon').textContent === 'U' : false;
+        await window.api.gitDiscard(fp, isUntracked);
+      }
+      refreshGitUI();
+    });
+    bar.appendChild(discardBtn);
+  }
+
+  if (stagedCount > 0) {
+    const unstageBtn = document.createElement('button');
+    unstageBtn.className = 'git-selection-action';
+    unstageBtn.textContent = 'Unstage ' + stagedCount + ' file' + (stagedCount > 1 ? 's' : '');
+    unstageBtn.addEventListener('click', async () => {
+      bar.style.display = 'none';
+      for (const fp of gitSelectedStaged) await window.api.gitUnstage(fp);
+      refreshGitUI();
+    });
+    bar.appendChild(unstageBtn);
+  }
+
+  const clearBtn = document.createElement('button');
+  clearBtn.className = 'git-selection-action git-selection-clear';
+  clearBtn.textContent = '✕';
+  clearBtn.title = 'Clear selection';
+  clearBtn.addEventListener('click', () => {
+    gitSelectedUnstaged.clear();
+    gitSelectedStaged.clear();
+    gitLastClickedIndex = -1;
+    document.querySelectorAll('.git-file-row.selected').forEach(r => r.classList.remove('selected'));
+    updateGitSelectionBar();
+  });
+  bar.appendChild(clearBtn);
 }
 
 async function showGitFileDiff(filePath, staged) {

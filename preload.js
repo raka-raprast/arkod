@@ -1,7 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
-  send: (prompt) => ipcRenderer.invoke('llm:send', prompt),
+  send: (payload) => ipcRenderer.invoke('llm:send', payload),
+  cancel: () => ipcRenderer.invoke('llm:cancel'),
   getVersion: () => ipcRenderer.invoke('app:version'),
   getCwd: () => ipcRenderer.invoke('cwd:get'),
   getModel: () => ipcRenderer.invoke('model:get'),
@@ -35,6 +36,7 @@ contextBridge.exposeInMainWorld('api', {
   onDone: (cb) => ipcRenderer.on('llm:done', (_e, c) => cb(c)),
   onError: (cb) => ipcRenderer.on('llm:error', (_e, m) => cb(m)),
   onTimeout: (cb) => ipcRenderer.on('llm:timeout', (_e, m) => cb(m)),
+  onCancelled: (cb) => ipcRenderer.on('llm:cancelled', (_e, m) => cb(m)),
   onLog: (cb) => ipcRenderer.on('llm:log', (_e, d) => cb(d)),
   onUsage: (cb) => ipcRenderer.on('llm:usage', (_e, u) => cb(u)),
   onTitleGenerated: (cb) => ipcRenderer.on('session:title-generated', (_e, title) => cb(title)),
@@ -88,6 +90,8 @@ contextBridge.exposeInMainWorld('api', {
   gitCommitFiles: (hash) => ipcRenderer.invoke('git:commit-files', hash),
   gitCommitFileDiff: (hash, filePath) => ipcRenderer.invoke('git:commit-file-diff', hash, filePath),
   gitBranchDiffFiles: (branch) => ipcRenderer.invoke('git:branch-diff-files', branch),
+  searchProjectFiles: (query) => ipcRenderer.invoke('file:search', query),
+  validateMentions: (mentions) => ipcRenderer.invoke('file:validate-mentions', mentions),
   searchFiles: (query, options) => ipcRenderer.invoke('search:find', query, options),
   gitPull: () => ipcRenderer.invoke('git:pull'),
   gitPush: () => ipcRenderer.invoke('git:push'),

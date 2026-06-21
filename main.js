@@ -13,6 +13,9 @@ let cwd;
 let activeSessionId = null;
 let sessionJustCreated = false;
 let busy = false;
+let activeProc = null;
+let activeTimeoutTimer = null;
+let activeCancelFinalize = null;
 let currentModel = '';
 let termProc = null;
 let fileSnapshots = {};
@@ -621,6 +624,51 @@ function invalidateFileIndex() {
   fileIndexCacheDir = null;
 }
 
+ipcMain.handle('file:validate-mentions', async (_event, mentions) => {
+  if (!cwd || !Array.isArray(mentions)) return { valid: true, invalid: [] };
+  const invalid = [];
+  for (const fp of mentions) {
+    if (!fp || typeof fp !== 'string') { invalid.push(fp); continue; }
+    const resolved = path.isAbsolute(fp) ? fp : path.join(cwd, fp);
+    try {
+      if (!fs.existsSync(resolved)) invalid.push(fp);
+    } catch (_) { invalid.push(fp); }
+  }
+  return { valid: invalid.length === 0, invalid };
+});
+
+ipcMain.handle('file:search', async (_event, query) => {
+  if (!cwd) return [];
+  const q = (query || '').toLowerCase();
+  let files;
+  if (fileIndexCache && fileIndexCacheDir === cwd) {
+    files = fileIndexCache;
+  } else {
+    files = await buildFileIndex(cwd);
+    fileIndexCache = files;
+    fileIndexCacheDir = cwd;
+  }
+  const scored = [];
+  for (const f of files) {
+    const rel = path.relative(cwd, f);
+    const lower = rel.toLowerCase();
+    const idx = lower.indexOf(q);
+    if (idx === -1) continue;
+    const name = path.basename(f);
+    const nameLower = name.toLowerCase();
+    const nameIdx = nameLower.indexOf(q);
+    let score = idx;
+    if (nameIdx === 0) score -= 10000;
+    else if (idx === 0) score -= 5000;
+    else if (nameIdx > 0) score -= 1000;
+    if (lower === q || nameLower === q) score -= 20000;
+    scored.push({ path: f, relPath: rel, name, score });
+  }
+  scored.sort((a, b) => a.score - b.score);
+  const results = scored.slice(0, 50).map(({ path, relPath, name }) => ({ path, relPath, name }));
+  return results;
+});
+
 ipcMain.handle('file:list-recursive', async (_event, dir) => {
   const target = dir || cwd;
   if (fileIndexCache && fileIndexCacheDir === target) return fileIndexCache;
@@ -839,9 +887,48 @@ function checkFileChanges() {
   fileSnapshots = {};
 }
 
-ipcMain.handle('llm:send', (_event, prompt) => {
+ipcMain.handle('llm:send', async (_event, payload) => {
   if (busy) return;
   busy = true;
+
+  let prompt;
+  let originalPrompt;
+  let mentionedFiles = [];
+
+  if (typeof payload === 'string') {
+    prompt = payload;
+    originalPrompt = payload;
+  } else if (payload && typeof payload === 'object') {
+    prompt = payload.text || '';
+    originalPrompt = prompt;
+    mentionedFiles = payload.mentions || [];
+  } else {
+    busy = false;
+    return;
+  }
+
+  if (mentionedFiles.length > 0) {
+    let context = '';
+    for (const m of mentionedFiles) {
+      const filePath = typeof m === 'string' ? m : (m.path || m);
+      const resolved = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+      try {
+        if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+          const content = fs.readFileSync(resolved, 'utf8');
+          const rel = path.relative(cwd, resolved);
+          const ext = path.extname(resolved).slice(1) || 'txt';
+          if (content.length < 200000) {
+            context += '\n--- ' + rel + ' ---\n```' + ext + '\n' + content + '\n```\n';
+          } else {
+            context += '\n--- ' + rel + ' (truncated) ---\n```' + ext + '\n' + content.slice(0, 200000) + '\n```\n';
+          }
+        }
+      } catch (_) {}
+    }
+    if (context) {
+      prompt = 'The following files have been mentioned for context:\n' + context + '\n---\n' + prompt;
+    }
+  }
 
   fileSnapshots = snapshotTextFiles(cwd);
 
@@ -866,6 +953,7 @@ ipcMain.handle('llm:send', (_event, prompt) => {
   }
 
   const proc = spawn('omp', args, { cwd, env });
+  activeProc = proc;
   let buf = '';
   let resolved = false;
   let responseTextBuf = '';
@@ -881,6 +969,9 @@ ipcMain.handle('llm:send', (_event, prompt) => {
     resolved = true;
     clearTimeout(timeoutTimer);
     busy = false;
+    activeProc = null;
+    activeTimeoutTimer = null;
+    activeCancelFinalize = null;
 
     console.log('[chat room] prompt:', prompt);
     console.log('[chat room] thinking:', thinkingBuf);
@@ -888,9 +979,13 @@ ipcMain.handle('llm:send', (_event, prompt) => {
     console.log('[chat room] status:', status, detail || '');
 
     if (activeSessionId) {
+      const userContent = [{ type: 'text', text: originalPrompt }];
+      if (mentionedFiles.length > 0) {
+        userContent.push({ type: 'text', text: '\n\n[mentioned files: ' + mentionedFiles.map(f => typeof f === 'string' ? f : f.relPath || f.path).join(', ') + ']' });
+      }
       appendToSessionFile(activeSessionId, {
         type: 'message',
-        message: { role: 'user', content: [{ type: 'text', text: prompt }] },
+        message: { role: 'user', content: userContent },
         timestamp: Date.now(),
       });
       if (thinkBlocks.length > 0 || responseTextBuf) {
@@ -909,7 +1004,7 @@ ipcMain.handle('llm:send', (_event, prompt) => {
 
     if (sessionJustCreated && status === 'done' && activeSessionId) {
       sessionJustCreated = false;
-      generateSessionTitle(activeSessionId, prompt);
+      generateSessionTitle(activeSessionId, originalPrompt);
     }
 
     mainWindow.webContents.send('llm:log', { prompt, thinking: thinkingBuf, response: responseTextBuf, status, detail });
@@ -918,6 +1013,8 @@ ipcMain.handle('llm:send', (_event, prompt) => {
       mainWindow.webContents.send('llm:done', detail);
     } else if (status === 'timeout') {
       mainWindow.webContents.send('llm:timeout', detail);
+    } else if (status === 'cancelled') {
+      mainWindow.webContents.send('llm:cancelled', detail);
     } else {
       mainWindow.webContents.send('llm:error', detail);
     }
@@ -927,6 +1024,9 @@ ipcMain.handle('llm:send', (_event, prompt) => {
     proc.kill();
     finalize('timeout', 'LLM request timed out after 5 minutes');
   }, LLM_TIMEOUT);
+
+  activeTimeoutTimer = timeoutTimer;
+  activeCancelFinalize = finalize;
 
   proc.stdout.on('data', (data) => {
     const now = process.hrtime.bigint();
@@ -1027,6 +1127,15 @@ ipcMain.handle('llm:send', (_event, prompt) => {
   proc.on('error', (err) => {
     finalize('error', err.code === 'ENOENT' ? 'omp command not found. Is it installed?' : err.message);
   });
+});
+
+ipcMain.handle('llm:cancel', () => {
+  if (busy && activeProc) {
+    activeProc.kill('SIGTERM');
+    if (activeTimeoutTimer) clearTimeout(activeTimeoutTimer);
+    if (activeCancelFinalize) activeCancelFinalize('cancelled', 'Cancelled by user');
+  }
+  return true;
 });
 
 function execGit(args, timeout = 15000) {
