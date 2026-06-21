@@ -98,4 +98,7 @@ contextBridge.exposeInMainWorld('api', {
   gitDeleteBranch: (branchName) => ipcRenderer.invoke('git:delete-branch', branchName),
   gitWatchStart: () => ipcRenderer.invoke('git:watch-start'),
   gitWatchStop: () => ipcRenderer.invoke('git:watch-stop'),
+  gitDiscard: (filePath, isUntracked) => ipcRenderer.invoke('git:discard', filePath, isUntracked),
+  gitDiscardAll: () => ipcRenderer.invoke('git:discard-all'),
+  gitCommitGen: () => ipcRenderer.invoke('git:commit-gen'),
 });

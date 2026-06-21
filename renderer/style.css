@@ -1592,11 +1592,17 @@ body.dragging .sash.active {
 #token-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 3px 12px;
   font-size: 11px;
   color: var(--text-dim);
   border-top: 1px solid var(--border);
+}
+
+#git-branch-indicator {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-family: 'SF Mono', Monaco, Menlo, monospace;
+  font-size: 11px;
 }
 
 #model-info,
@@ -1782,6 +1788,34 @@ body.dragging .sash.active {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+}
+
+#git-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(18, 16, 31, 0.85);
+  z-index: 10;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.git-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border-light);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: git-spin 0.8s linear infinite;
+}
+
+@keyframes git-spin {
+  to { transform: rotate(360deg); }
 }
 
 #git-branch-bar {
@@ -1899,10 +1933,16 @@ body.dragging .sash.active {
   justify-content: center;
 }
 
-.git-stage-all-btn:hover,
-.git-unstage-all-btn:hover {
+.git-stage-all-btn:hover:not(:disabled),
+.git-unstage-all-btn:hover:not(:disabled) {
   background: var(--border-light);
   color: var(--text-bright);
+}
+
+.git-stage-all-btn:disabled,
+.git-unstage-all-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 .git-file-list {
@@ -1993,6 +2033,39 @@ body.dragging .sash.active {
   border-color: var(--stage-border);
 }
 
+.git-discard-btn {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.git-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.git-discard-all-btn {
+  background: none;
+  border: 1px solid var(--error);
+  color: var(--error);
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.git-discard-all-btn:hover:not(:disabled) {
+  background: var(--error);
+  color: var(--bg);
+}
+
+.git-discard-all-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
 .git-stage-btn:hover {
   background: var(--success-bg);
 }
@@ -2039,6 +2112,26 @@ body.dragging .sash.active {
 
 .git-commit-btn:disabled {
   opacity: 0.6;
+  cursor: default;
+}
+
+.git-commit-gen-btn {
+  background: var(--accent-bg);
+  color: var(--text-bright);
+  border: none;
+  padding: 6px 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.git-commit-gen-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.git-commit-gen-btn:disabled {
+  opacity: 0.35;
   cursor: default;
 }
 

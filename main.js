@@ -1033,7 +1033,22 @@ function execGit(args, timeout = 15000) {
   return new Promise((resolve, reject) => {
     const child = execFile('git', args, { cwd, timeout, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) {
-        reject(new Error(stderr.trim() || err.message));
+        const errMsg = stderr.trim() || err.message;
+        if (/index\.lock.*File exists/i.test(errMsg)) {
+          const lockPath = path.join(cwd, '.git', 'index.lock');
+          try {
+            if (fs.existsSync(lockPath)) {
+              const stat = fs.statSync(lockPath);
+              const ageMs = Date.now() - stat.mtimeMs;
+              if (ageMs > 300000) {
+                fs.unlinkSync(lockPath);
+                resolve(execGit(args, timeout));
+                return;
+              }
+            }
+          } catch (_) {}
+        }
+        reject(new Error(errMsg));
       } else {
         resolve(stdout.replace(/[\r\n]+$/, ''));
       }
@@ -1138,8 +1153,31 @@ ipcMain.handle('git:stage-all', async () => {
 
 ipcMain.handle('git:unstage-all', async () => {
   try {
-    await execGit(['reset', 'HEAD', '.']);
-    return true;
+    const result = await execGit(['reset', 'HEAD', '.']);
+    return { success: true, result };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('git:discard', async (_event, filePath, isUntracked) => {
+  try {
+    if (isUntracked) {
+      await execGit(['clean', '-f', '--', filePath]);
+    } else {
+      await execGit(['checkout', '--', filePath]);
+    }
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('git:discard-all', async () => {
+  try {
+    await execGit(['checkout', '--', '.']);
+    try { await execGit(['clean', '-fd']); } catch (_) {}
+    return { success: true };
   } catch (err) {
     return { error: err.message };
   }
@@ -1307,6 +1345,23 @@ ipcMain.handle('git:pull', async () => {
     const result = await execGit(['pull'], 30000);
     return { success: true, result };
   } catch (err) {
+    if (/no tracking information/i.test(err.message)) {
+      try {
+        const branch = (await execGit(['branch', '--show-current'])).trim();
+        const result = await execGit(['pull', 'origin', branch], 30000);
+        return { success: true, result };
+      } catch (err2) {
+        if (/couldn't find remote ref/i.test(err2.message)) {
+          try {
+            const result = await execGit(['pull', 'origin', 'HEAD'], 30000);
+            return { success: true, result };
+          } catch (err3) {
+            return { error: 'No remote branch found for "' + branch + '". Specify a branch to pull from.' };
+          }
+        }
+        return { error: err2.message };
+      }
+    }
     return { error: err.message };
   }
 });
@@ -1316,6 +1371,15 @@ ipcMain.handle('git:push', async () => {
     const result = await execGit(['push'], 30000);
     return { success: true, result };
   } catch (err) {
+    if (/no upstream branch/i.test(err.message)) {
+      try {
+        const branch = (await execGit(['branch', '--show-current'])).trim();
+        const result = await execGit(['push', '--set-upstream', 'origin', branch], 30000);
+        return { success: true, result };
+      } catch (err2) {
+        return { error: err2.message };
+      }
+    }
     return { error: err.message };
   }
 });
@@ -1360,6 +1424,73 @@ ipcMain.handle('git:delete-branch', async (_event, branchName) => {
   try {
     const result = await execGit(['branch', '-d', branchName]);
     return { success: true, result };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('git:commit-gen', async () => {
+  try {
+    const keys = loadApiKeys();
+    const hasProvider = Object.values(keys).some((k) => k && k !== '__forgotten__');
+    if (!hasProvider) {
+      return { error: 'No AI provider configured. Set up a provider in Settings first.' };
+    }
+
+    const diff = await execGit(['diff', '--cached']);
+    if (!diff.trim()) {
+      return { error: 'No staged changes to commit.' };
+    }
+
+    const prompt = 'Generate a concise, single-line commit message following conventional commits format (type: description). Output ONLY the commit message with no prefix, no quotes, no explanation:\n\n' + diff;
+
+    const env = { ...process.env };
+    for (const [provider, key] of Object.entries(keys)) {
+      const varName = PROVIDER_ENV[provider];
+      if (varName && key === '__forgotten__') {
+        env[varName] = '';
+      } else if (varName && key && !env[varName]) {
+        env[varName] = key;
+      }
+    }
+
+    const args = ['-p', '--no-session'];
+    if (currentModel) {
+      args.push('--model', currentModel);
+    }
+    args.push(prompt);
+
+    const commitMsg = await new Promise((resolve, reject) => {
+      const proc = spawn('omp', args, { cwd, env });
+      let output = '';
+      proc.stdout.on('data', (d) => { output += d.toString(); });
+      proc.stderr.on('data', () => {});
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error('omp exited with code ' + code));
+        } else {
+          const msg = output.trim().split('\n')[0].replace(/^["']|["']$/g, '').trim();
+          resolve(msg || output.trim());
+        }
+      });
+      proc.on('error', (err) => {
+        reject(new Error(err.code === 'ENOENT' ? 'omp command not found. Is it installed?' : err.message));
+      });
+    });
+
+    if (!commitMsg) {
+      return { error: 'Failed to generate commit message from AI.' };
+    }
+
+    const commitResult = await execGit(['commit', '-m', commitMsg]);
+    let pushResult = null;
+    try {
+      pushResult = await execGit(['push'], 30000);
+    } catch (pushErr) {
+      return { success: true, commit: commitResult, message: commitMsg, error: 'Committed but push failed: ' + pushErr.message };
+    }
+
+    return { success: true, commit: commitResult, push: pushResult, message: commitMsg };
   } catch (err) {
     return { error: err.message };
   }

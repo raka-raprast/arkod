@@ -114,7 +114,10 @@
                 <div class="git-section">
                   <div class="git-section-header">
                     <span class="git-section-title">Changes</span>
-                    <button id="git-stage-all-btn" class="git-stage-all-btn" title="Stage all changes">+</button>
+                    <div class="git-section-actions">
+                      <button id="git-discard-all-btn" class="git-discard-all-btn" title="Discard all changes">⊗ Discard All</button>
+                      <button id="git-stage-all-btn" class="git-stage-all-btn" title="Stage all changes">+</button>
+                    </div>
                   </div>
                   <div id="git-unstaged-list" class="git-file-list"></div>
                 </div>
@@ -127,6 +130,7 @@
                   <div id="git-commit-area">
                     <input id="git-commit-msg" type="text" placeholder="Commit message..." />
                     <button id="git-commit-btn" class="git-commit-btn">Commit</button>
+                    <button id="git-commit-gen-btn" class="git-commit-gen-btn" title="Generate commit message with AI, commit and push" disabled>✦ Gen & Push</button>
                   </div>
                 </div>
               </div>
@@ -219,6 +223,7 @@
         <div id="token-bar">
           <span id="model-info"></span>
           <span id="token-info"></span>
+          <span id="git-branch-indicator" style="display:none"></span>
         </div>
       </div>
     </div>
