@@ -12,6 +12,7 @@ const editorPosition = document.getElementById('editor-position');
 const editorLangLabel = document.getElementById('editor-lang-label');
 const editorMdToggle = document.getElementById('editor-md-toggle');
 const editorMdPreview = document.getElementById('editor-md-preview');
+const editorMediaView = document.getElementById('editor-media-view');
 const fileTreeEl = document.getElementById('file-tree');
 const newFileBtn = document.getElementById('new-file-btn');
 const newFolderBtn = document.getElementById('new-folder-btn');
@@ -1242,6 +1243,17 @@ function isMarkdownFile(filePath) {
   return /\.(md|markdown)$/i.test(filePath || '');
 }
 
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico', 'avif']);
+
+function getFileType(filePath) {
+  const ext = (filePath || '').split('.').pop().toLowerCase();
+  if (IMAGE_EXTS.has(ext)) return 'image';
+  if (ext === 'pdf') return 'pdf';
+  if (ext === 'docx') return 'word';
+  if (ext === 'xlsx' || ext === 'xls') return 'excel';
+  return null;
+}
+
 function initEditor() {
   if (!EditorModule || !EditorModule.createEditor) return;
   editorView = EditorModule.createEditor(editorEl, window.api);
@@ -1282,9 +1294,62 @@ function updateMarkdownToggle() {
 function stashActiveDraft() {
   if (!activeFilePath || !EditorModule || !EditorModule.getText) return;
   const entry = openFiles.find(f => f.path === activeFilePath);
-  if (!entry) return;
+  if (!entry || entry.media) return;
   entry.draft = EditorModule.getText();
   entry.dirty = EditorModule.isDirty ? EditorModule.isDirty() : false;
+}
+
+async function showMediaView(filePath, fileType) {
+  const view = editorMediaView;
+  if (!view) return;
+  view.innerHTML = '<div class="media-loading">Loading…</div>';
+
+  try {
+    if (fileType === 'image') {
+      const dataUrl = await window.api.readDataUrl(filePath);
+      if (!dataUrl) { view.innerHTML = '<div class="media-error">Unable to read image file.</div>'; return; }
+      view.innerHTML = '';
+      const wrap = document.createElement('div');
+      wrap.className = 'media-image-wrap';
+      const img = document.createElement('img');
+      img.className = 'media-image';
+      img.src = dataUrl;
+      img.alt = filePath.split('/').pop();
+      wrap.appendChild(img);
+      view.appendChild(wrap);
+    } else if (fileType === 'pdf') {
+      const dataUrl = await window.api.readDataUrl(filePath);
+      if (!dataUrl) { view.innerHTML = '<div class="media-error">Unable to read PDF file.</div>'; return; }
+      view.innerHTML = '';
+      const iframe = document.createElement('iframe');
+      iframe.className = 'media-pdf-frame';
+      iframe.src = dataUrl;
+      view.appendChild(iframe);
+    } else if (fileType === 'word') {
+      const html = await window.api.readDocx(filePath);
+      view.innerHTML = '<div class="media-doc media-doc-word">' + html + '</div>';
+    } else if (fileType === 'excel') {
+      const html = await window.api.readXlsx(filePath);
+      view.innerHTML = '<div class="media-doc media-doc-excel">' + html + '</div>';
+    }
+  } catch (err) {
+    view.innerHTML = '<div class="media-error">Failed to load file.<br><small>' + (err.message || err) + '</small></div>';
+  }
+}
+
+async function displayActiveFile(draft) {
+  const entry = openFiles.find(f => f.path === activeFilePath);
+  const fileType = entry ? entry.media : null;
+
+  if (fileType) {
+    editorPanel.classList.add('media-view');
+    if (editorMdToggle) editorMdToggle.hidden = true;
+    await showMediaView(activeFilePath, fileType);
+  } else {
+    editorPanel.classList.remove('media-view');
+    if (editorMediaView) editorMediaView.innerHTML = '';
+    if (EditorModule.openFile) await EditorModule.openFile(activeFilePath, window.api, draft);
+  }
 }
 
 async function openFileInEditor(filePath) {
@@ -1294,15 +1359,18 @@ async function openFileInEditor(filePath) {
 
   if (activeFilePath && activeFilePath !== filePath) stashActiveDraft();
 
+  const fileType = getFileType(filePath);
   const existing = openFiles.find(f => f.path === filePath);
+  const draft = existing ? existing.draft : undefined;
   if (existing) {
     activeFilePath = filePath;
-    if (EditorModule.openFile) await EditorModule.openFile(filePath, window.api, existing.draft);
+    existing.media = fileType;
   } else {
-    openFiles.push({ path: filePath, name: filePath.split('/').pop(), dirty: false, draft: null });
+    openFiles.push({ path: filePath, name: filePath.split('/').pop(), dirty: false, draft: null, media: fileType });
     activeFilePath = filePath;
-    if (EditorModule.openFile) await EditorModule.openFile(filePath, window.api);
   }
+
+  await displayActiveFile(draft);
 
   renderEditorTabs();
   if (openFiles.length === 1) {
@@ -1323,9 +1391,11 @@ function doCloseEditorTab(filePath) {
     if (openFiles.length > 0) {
       const next = openFiles[openFiles.length - 1];
       activeFilePath = next.path;
-      if (EditorModule.openFile) EditorModule.openFile(activeFilePath, window.api, next.draft);
+      displayActiveFile(next.draft);
     } else {
       activeFilePath = null;
+      editorPanel.classList.remove('media-view');
+      if (editorMediaView) editorMediaView.innerHTML = '';
       if (EditorModule.closeFile) EditorModule.closeFile(window.api);
       editorPanel.style.flex = '0 0 0px';
       if (sashEditor) sashEditor.classList.remove('visible');
@@ -1408,13 +1478,24 @@ function updateEditorStatus() {
 }
 
 function updateEditorPosition() {
-  if (!editorView) return;
-  const pos = editorView.state.selection.main.head;
-  const line = editorView.state.doc.lineAt(pos);
-  editorPosition.textContent = `Ln ${line.number}, Col ${pos - line.from + 1}`;
   if (activeFilePath) {
     const name = activeFilePath.split('/').pop();
-    editorPosition.textContent = name + ' · ' + editorPosition.textContent;
+    const entry = openFiles.find(f => f.path === activeFilePath);
+    if (entry && entry.media) {
+      editorPosition.textContent = name;
+      return;
+    }
+    if (editorView) {
+      const pos = editorView.state.selection.main.head;
+      const line = editorView.state.doc.lineAt(pos);
+      editorPosition.textContent = name + ' · Ln ' + line.number + ', Col ' + (pos - line.from + 1);
+      return;
+    }
+  }
+  if (editorView) {
+    const pos = editorView.state.selection.main.head;
+    const line = editorView.state.doc.lineAt(pos);
+    editorPosition.textContent = 'Ln ' + line.number + ', Col ' + (pos - line.from + 1);
   }
 }
 
@@ -1676,6 +1757,7 @@ function showContextMenu(x, y, targetPath, isDir, isRoot) {
       });
     });
   }
+  addItem('Reveal in Finder', () => window.api.revealInFinder(targetPath));
   if (!isRoot) {
     addSeparator();
     addItem('Delete…', () => deletePath(targetPath, isDir), 'danger');
@@ -2419,6 +2501,8 @@ if (!promptEl || !responseEl) {
     openFiles = [];
     activeFilePath = null;
     editorPanel.style.flex = '0 0 0px';
+    editorPanel.classList.remove('media-view');
+    if (editorMediaView) editorMediaView.innerHTML = '';
     if (sashEditor) sashEditor.classList.remove('visible');
     if (EditorModule && EditorModule.closeFile) EditorModule.closeFile(window.api);
     renderEditorTabs();
@@ -4383,6 +4467,8 @@ document.addEventListener('keydown', (e) => {
   }
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 's') {
     e.preventDefault();
+    const active = openFiles.find(f => f.path === activeFilePath);
+    if (active && active.media) return;
     if (EditorModule && EditorModule.saveCurrentFile) EditorModule.saveCurrentFile();
   }
 });

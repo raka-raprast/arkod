@@ -50,24 +50,35 @@
 
 ## 6. @Mention File References
 
-- [ ] Add `file:search` IPC handler (project tree walk, gitignore-aware, cached)
-- [ ] Build `@`-mention suggestion popup UI (anchored to caret, real-time filtering)
-- [ ] Implement mention chip rendering (overlay display div pattern)
-- [ ] Wire mentions into `send()` payload `{ text, mentions, attachments }`
-- [ ] Main process: inject mentioned file contents into LLM context
-- [ ] Add "Mention in Chat" to file tree context menu
-- [ ] Render `@path` mentions as styled badges in chat history replay
-- [ ] `Ctrl+Shift+F` file picker for quick mention insertion
-- [ ] Preload bridge: `searchFiles`
+- [x] Add `file:search` IPC handler (project tree walk, gitignore-aware, cached)
+- [x] Build `@`-mention suggestion popup UI (anchored to caret, real-time filtering)
+- [x] Implement mention chip rendering (overlay display div pattern)
+- [x] Wire mentions into `send()` payload `{ text, mentions, attachments }`
+- [x] Main process: inject mentioned file contents into LLM context
+- [x] Add "Mention in Chat" to file tree context menu
+- [x] Render `@path` mentions as styled badges in chat history replay
+- [x] `Ctrl+Shift+F` file picker for quick mention insertion
+- [x] Preload bridge: `searchFiles`
 
 ## 7. Multi-Language Linter Support
 
-- [ ] Install `@codemirror/lang-go` + add Go syntax highlighting
-- [ ] Verify/repair existing Python syntax highlighting
-- [ ] Install `@codemirror/legacy-modes` + add Dart syntax highlighting
-- [ ] Add Dart LSP server config to `lsp/detect.js`
-- [ ] Add `pubspec.yaml`/`analysis_options.yaml` to Dart `ROOT_PATTERNS`
-- [ ] Run build and verify all three languages show color + LSP diagnostics
+- [x] Install `@codemirror/lang-go` + add Go syntax highlighting
+- [x] Verify/repair existing Python syntax highlighting
+- [x] Install `@codemirror/legacy-modes` + add Dart syntax highlighting
+- [x] Add Dart LSP server config to `lsp/detect.js`
+- [x] Add `pubspec.yaml`/`analysis_options.yaml` to Dart `ROOT_PATTERNS`
+- [x] Run build and verify all three languages show color + LSP diagnostics
+
+## 8. Git Merge Conflict Resolver
+
+- [ ] Detect conflicted files in git status (`UU` codes) + distinct styling in file list
+- [ ] Add `git:resolve-read` IPC handler (parses `<<<`/`===`/`>>>` conflict markers)
+- [ ] Build conflict resolver UI panel (inline ours/theirs view with accept buttons)
+- [ ] Add `git:resolve-apply` IPC handler (writes resolved content back to file)
+- [ ] Add `git:resolve-mark` IPC handler (`git add <file>` to mark resolved)
+- [ ] Add `git:merge-abort` IPC (`git merge --abort` or `git rebase --abort`)
+- [ ] Merge-in-progress banner in git branch bar + conflict count progress
+- [ ] Preload bridge: `gitResolveRead`, `gitResolveApply`, `gitResolveMark`, `gitMergeAbort`
 
 ---
 
@@ -75,11 +86,11 @@
 
 | File                | Key Changes                                                |
 |----------------------|------------------------------------------------------------|
-| `main.js`            | Recent, MCP, attachment, mention, file CRUD IPC handlers   |
-| `preload.js`         | All new bridge methods, updated `send()` signature         |
-| `renderer/index.html`| Startup panel, recent section, context menu, attachment bar|
-| `renderer/style.css` | All new UI components                                      |
-| `renderer/renderer.js`| Wire everything together                                  |
+| `main.js`            | Recent, MCP, attachment, mention, file CRUD IPC handlers, conflict resolver IPC |
+| `preload.js`         | All new bridge methods, updated `send()` signature, conflict resolver bridge |
+| `renderer/index.html`| Startup panel, recent section, context menu, attachment bar, conflict resolver panel |
+| `renderer/style.css` | All new UI components, conflict resolver styles |
+| `renderer/renderer.js`| Wire everything together, conflict resolver UI           |
 | `renderer/editor.mjs`| Go, Dart syntax highlighting, optional extension map refactor|
 | `lsp/detect.js`      | Dart LSP server config + root patterns                     |
 | `package.json`       | `@codemirror/lang-go`, `@codemirror/legacy-modes`          |

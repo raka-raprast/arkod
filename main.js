@@ -623,6 +623,55 @@ ipcMain.handle('file:snapshot', async (_event, filePath) => {
   }
 });
 
+const DATA_URL_MIME = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml', ico: 'image/x-icon',
+  avif: 'image/avif', pdf: 'application/pdf',
+};
+
+ipcMain.handle('file:read-data-url', async (_event, filePath) => {
+  try {
+    const buf = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).slice(1).toLowerCase();
+    const mime = DATA_URL_MIME[ext] || 'application/octet-stream';
+    return `data:${mime};base64,${buf.toString('base64')}`;
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return null;
+    throw err;
+  }
+});
+
+ipcMain.handle('file:reveal', async (_event, filePath) => {
+  try { shell.showItemInFolder(filePath); } catch (_) {}
+});
+
+ipcMain.handle('file:read-docx', async (_event, filePath) => {
+  try {
+    const mammoth = require('mammoth');
+    const result = await mammoth.convertToHtml({ path: filePath });
+    return result.value || '<p>(Empty document)</p>';
+  } catch (err) {
+    return '<p class="media-error">Unable to read this document.<br><small>' + (err.message || err) + '</small></p>';
+  }
+});
+
+ipcMain.handle('file:read-xlsx', async (_event, filePath) => {
+  try {
+    const XLSX = require('xlsx');
+    const wb = XLSX.readFile(filePath, { cellStyles: true });
+    let html = '';
+    for (const sheetName of wb.SheetNames) {
+      const ws = wb.Sheets[sheetName];
+      if (html) html += '<hr class="sheet-sep">';
+      if (wb.SheetNames.length > 1) html += `<h3 class="sheet-name">${sheetName}</h3>`;
+      html += XLSX.utils.sheet_to_html(ws, { editable: false });
+    }
+    return html || '<p>(Empty spreadsheet)</p>';
+  } catch (err) {
+    return '<p class="media-error">Unable to read this spreadsheet.<br><small>' + (err.message || err) + '</small></p>';
+  }
+});
+
 ipcMain.handle('diff:compute', async (_event, before, after) => {
   return unifiedDiff(before, after);
 });
