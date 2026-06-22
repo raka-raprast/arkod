@@ -1,6 +1,6 @@
 {
   "name": "oh-my-pi",
-  "version": "0.0.1-alpha",
+  "version": "0.0.2-alpha",
   "description": "Desktop LLM assistant — like Codex for macOS",
   "main": "main.js",
   "scripts": {
@@ -42,14 +42,15 @@
       ]
     },
     "files": [
-      "main.js",
-      "preload.js",
-      "diff.js",
-      "build.mjs",
-      "package.json",
-      "renderer/**/*",
-      "lsp/**/*",
-      "node_modules/**/*"
+    "main.js",
+    "preload.js",
+    "diff.js",
+    "build.mjs",
+    "package.json",
+    "renderer/**/*",
+    "lsp/**/*",
+    "db/**/*",
+    "node_modules/**/*"
     ],
     "extraResources": []
   },
@@ -79,9 +80,13 @@
     "@codemirror/theme-one-dark": "^6.1.2",
     "@codemirror/view": "^6.35.3",
     "@xterm/addon-fit": "^0.11.0",
+    "better-sqlite3": "^12.11.1",
     "highlight.js": "^11.11.1",
     "mammoth": "^1.12.0",
+    "mongodb": "^7.3.0",
+    "mysql2": "^3.22.5",
     "node-pty": "^1.1.0",
+    "pg": "^8.22.0",
     "vscode-jsonrpc": "^8.2.1",
     "vscode-languageserver-protocol": "^3.17.5",
     "xlsx": "^0.18.5",

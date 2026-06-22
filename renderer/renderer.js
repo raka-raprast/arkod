@@ -356,18 +356,20 @@ function switchSidebarTab(tabName) {
       if (sq) setTimeout(() => sq.focus(), 0);
     }
   } else {
-    if (tabName === 'git') {
+    if (tabName === 'git' || tabName === 'database') {
       sashInner.classList.remove('visible');
       sidebarEl.classList.remove('collapsed');
       sidebarEl.style.width = '220px';
       sashSidebar.classList.add('visible');
-      if (sashGitSidebar) sashGitSidebar.classList.add('visible');
+      if (sashGitSidebar) sashGitSidebar.classList.toggle('visible', tabName === 'git');
+      if (sashDbSidebar) sashDbSidebar.classList.toggle('visible', tabName === 'database');
     } else if (tabName === 'search') {
       sashInner.classList.remove('visible');
       sidebarEl.classList.remove('collapsed');
       sidebarEl.style.width = '280px';
       sashSidebar.classList.add('visible');
       if (sashGitSidebar) sashGitSidebar.classList.remove('visible');
+      if (sashDbSidebar) sashDbSidebar.classList.remove('visible');
     } else {
       window.api.gitWatchStop();
       sashInner.classList.remove('visible');
@@ -375,10 +377,11 @@ function switchSidebarTab(tabName) {
       sidebarEl.style.width = '0px';
       sashSidebar.classList.remove('visible');
       if (sashGitSidebar) sashGitSidebar.classList.remove('visible');
+      if (sashDbSidebar) sashDbSidebar.classList.remove('visible');
     }
     const inputArea = document.getElementById('input-area');
     if (inputArea) inputArea.style.display = 'none';
-    if (cwdBarEl) cwdBarEl.style.display = (tabName === 'git' || tabName === 'settings') ? '' : 'none';
+    if (cwdBarEl) cwdBarEl.style.display = (tabName === 'git' || tabName === 'database' || tabName === 'settings') ? '' : 'none';
     if (tabName === 'settings') {
       if (addAuthBtn) addAuthBtn.style.display = '';
       if (authFormEl) authFormEl.style.display = 'none';
@@ -393,6 +396,9 @@ function switchSidebarTab(tabName) {
     }
     if (tabName === 'git') {
       initGitTab();
+    }
+    if (tabName === 'database') {
+      initDatabaseTab();
     }
   }
 }
@@ -1509,7 +1515,16 @@ async function displayActiveFile(draft) {
   }
 }
 
+const SQLITE_EXTS = new Set(['db', 'sqlite', 'sqlite3']);
+function isSqliteFile(p) {
+  return SQLITE_EXTS.has((p.split('.').pop() || '').toLowerCase());
+}
+
 async function openFileInEditor(filePath) {
+  if (isSqliteFile(filePath)) {
+    openSqliteFileInDatabase(filePath);
+    return;
+  }
   if (!editorView) initEditor();
 
   window.api.trackFileOpened(filePath);
@@ -2900,6 +2915,10 @@ if (!promptEl || !responseEl) {
     updateBranchIndicator();
     window.api.gitWatchStart();
     if (activeSidebarTab === 'git') initGitTab();
+    // reload database connections for the new project
+    dbActiveConnectionId = null;
+    if (dbInitialized) await refreshDbConnections();
+    else if (activeSidebarTab === 'database') await initDatabaseTab();
   });
 
   window.api.onGitChanged(() => {
@@ -3299,6 +3318,972 @@ if (sashGitSidebar) {
     if (botH < minH) { botH = minH; topH = sashDrag.total - botH; }
     gitBranchesSection.style.flex = '0 0 ' + topH + 'px';
     gitStashesSection.style.flex = '0 0 ' + botH + 'px';
+  });
+}
+
+/* ===== Database tab (see PLAN_DATABASE.md) ===== */
+const dbNotConnected = document.getElementById('db-not-connected');
+const dbContent = document.getElementById('db-content');
+const dbConnectionSelect = document.getElementById('db-connection-select');
+const dbConnectionState = document.getElementById('db-connection-state');
+const dbConnectBtn = document.getElementById('db-connect-btn');
+const dbDisconnectBtn = document.getElementById('db-disconnect-btn');
+const dbTestBtn = document.getElementById('db-test-btn');
+const dbEditBtn = document.getElementById('db-edit-btn');
+const dbDeleteBtn = document.getElementById('db-delete-btn');
+const dbReadonlyToggle = document.getElementById('db-readonly-toggle');
+const dbRunBtn = document.getElementById('db-run-btn');
+const dbQueryEditor = document.getElementById('db-query-editor');
+const dbResults = document.getElementById('db-results');
+const dbFilterBar = document.getElementById('db-filter-bar');
+const dbFilterInput = document.getElementById('db-filter-input');
+const dbFilterColumn = document.getElementById('db-filter-column');
+const dbStructure = document.getElementById('db-structure');
+const dbStructureTitle = document.getElementById('db-structure-title');
+const dbStructureContent = document.getElementById('db-structure-content');
+const dbConnectionList = document.getElementById('db-connection-list');
+const dbSchemaTree = document.getElementById('db-schema-tree');
+const dbNewConnectionBtn = document.getElementById('db-new-connection-btn');
+const dbRefreshBtn = document.getElementById('db-refresh-btn');
+const dbEmptyConnectBtn = document.getElementById('db-empty-connect-btn');
+const sashDbSidebar = document.getElementById('sash-db-sidebar');
+
+const dbOverlay = document.getElementById('db-connection-overlay');
+const dbOverlayTitle = document.getElementById('db-overlay-title');
+const dbFormType = document.getElementById('db-form-type');
+const dbFormName = document.getElementById('db-form-name');
+const dbFormSqlite = document.getElementById('db-form-sqlite');
+const dbFormSql = document.getElementById('db-form-sql');
+const dbFormMongo = document.getElementById('db-form-mongo');
+const dbFormFilePath = document.getElementById('db-form-filePath');
+const dbFormBrowse = document.getElementById('db-form-browse');
+const dbFormHost = document.getElementById('db-form-host');
+const dbFormPort = document.getElementById('db-form-port');
+const dbFormUser = document.getElementById('db-form-user');
+const dbFormPassword = document.getElementById('db-form-password');
+const dbFormDatabase = document.getElementById('db-form-database');
+const dbFormSsl = document.getElementById('db-form-ssl');
+const dbFormUri = document.getElementById('db-form-uri');
+const dbFormMongoDb = document.getElementById('db-form-mongo-db');
+const dbFormScope = document.getElementById('db-form-scope');
+const dbFormAutoconnect = document.getElementById('db-form-autoconnect');
+const dbFormTestBtn = document.getElementById('db-form-test-btn');
+const dbFormStatus = document.getElementById('db-form-status');
+const dbFormCancelBtn = document.getElementById('db-form-cancel-btn');
+const dbFormSaveBtn = document.getElementById('db-form-save-btn');
+
+let dbInitialized = false;
+let dbConnections = [];
+let dbActiveConnectionId = null;
+const dbConnectedSet = new Set();
+let dbEditingId = null;
+let dbTreeCache = {};
+let dbCurrentTableData = null;
+let dbHistory = [];
+let dbHistoryIndex = 0;
+let dbAutoConnectTimer = null;
+let dbFilterTimer = null;
+let dbFilterColumnTypes = {};
+const DB_DEFAULT_PORTS = { postgres: 5432, mysql: 3306 };
+
+function dbActiveConnection() {
+  return dbConnections.find((c) => c.id === dbActiveConnectionId) || null;
+}
+function dbActiveType() {
+  const c = dbActiveConnection();
+  return c ? c.type : null;
+}
+function dbLoadingRow(msg) {
+  const d = document.createElement('div');
+  d.className = 'db-tree-row'; d.style.opacity = '0.6'; d.textContent = msg || 'Loading…';
+  return d;
+}
+function dbErrorRow(msg) {
+  const d = document.createElement('div');
+  d.className = 'db-results-error'; d.textContent = msg;
+  return d;
+}
+
+function renderDbConnectionList() {
+  if (!dbConnectionList) return;
+  dbConnectionList.innerHTML = '';
+  if (!dbConnections.length) {
+    const empty = document.createElement('div');
+    empty.className = 'db-connection-empty';
+    empty.textContent = 'No connections yet';
+    dbConnectionList.appendChild(empty);
+    return;
+  }
+  dbConnections.forEach((c) => {
+    const item = document.createElement('div');
+    item.className = 'db-connection-item' + (c.id === dbActiveConnectionId ? ' active' : '');
+    const connected = dbConnectedSet.has(c.id);
+    const scopeTag = c.scope === 'project' ? 'project' : 'global';
+    item.innerHTML =
+      '<span class="db-state-dot ' + (connected ? 'connected' : '') + '"></span>' +
+      '<span class="db-connection-type">' + escapeHtml(c.type || 'db') + '</span>' +
+      '<span class="db-tree-label">' + escapeHtml(c.name || 'unnamed') + '</span>' +
+      (c.autoConnect ? '<span class="db-scope-tag auto" title="Auto-connect on project open">⚡</span>' : '') +
+      '<span class="db-scope-tag ' + scopeTag + '" title="' + scopeTag + ' connection">' + scopeTag + '</span>' +
+      '<button class="db-connection-edit" title="Edit connection">✎</button>' +
+      '<button class="db-connection-remove" title="Remove connection">×</button>';
+    item.addEventListener('click', () => selectDbConnection(c.id));
+    item.querySelector('.db-connection-edit').addEventListener('click', (e) => {
+      e.stopPropagation();
+      openDbConnectionOverlay(c);
+    });
+    item.querySelector('.db-connection-remove').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm('Remove connection "' + (c.name || '') + '"? (The database itself is not deleted.)')) return;
+      await window.api.dbRemoveConnection(c.id);
+      dbConnectedSet.delete(c.id);
+      if (dbActiveConnectionId === c.id) dbActiveConnectionId = null;
+      await refreshDbConnections(true);
+    });
+    dbConnectionList.appendChild(item);
+  });
+}
+
+function populateDbConnectionSelect() {
+  if (!dbConnectionSelect) return;
+  dbConnectionSelect.innerHTML = '';
+  dbConnections.forEach((c) => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name + ' (' + (c.type || 'db') + ')';
+    dbConnectionSelect.appendChild(opt);
+  });
+  dbConnectionSelect.value = dbActiveConnectionId || (dbConnections[0] && dbConnections[0].id) || '';
+}
+
+function updateDbMainView() {
+  const hasConnections = dbConnections.length > 0;
+  if (dbNotConnected) dbNotConnected.style.display = hasConnections ? 'none' : 'flex';
+  if (dbContent) dbContent.style.display = hasConnections ? 'flex' : 'none';
+}
+
+function updateDbToolbarState() {
+  const active = dbActiveConnectionId;
+  const connected = active && dbConnectedSet.has(active);
+  if (dbConnectionState) {
+    dbConnectionState.className = 'db-state-dot' + (connected ? ' connected' : '');
+    dbConnectionState.title = connected ? 'Connected' : 'Not connected';
+  }
+  if (dbConnectBtn) dbConnectBtn.disabled = !active || connected;
+  if (dbDisconnectBtn) dbDisconnectBtn.disabled = !connected;
+  if (dbEditBtn) dbEditBtn.disabled = !active;
+  if (dbDeleteBtn) dbDeleteBtn.disabled = !active;
+  if (dbRunBtn && dbRunBtn.textContent.indexOf('Run') !== -1) {
+    dbRunBtn.disabled = !connected;
+  }
+  if (dbQueryEditor) {
+    const type = dbActiveType();
+    if (type === 'mongodb') {
+      dbQueryEditor.placeholder = '{ "collection": "users", "filter": { "age": { "$gt": 18 } }, "limit": 10 }\n(Ctrl/Cmd+Enter to run)';
+    } else {
+      dbQueryEditor.placeholder = '-- Run a SQL query…\n(Ctrl/Cmd+Enter to run)';
+    }
+  }
+}
+
+async function refreshDbConnections(preserveState) {
+  dbConnections = await window.api.dbListConnections();
+  // rebuild connected set from the server's view (covers auto-connect / cwd reload)
+  dbConnectedSet.clear();
+  dbConnections.forEach((c) => { if (c.connected) dbConnectedSet.add(c.id); });
+  if (!preserveState || !dbConnections.find((c) => c.id === dbActiveConnectionId)) {
+    dbActiveConnectionId = (dbConnections[0] && dbConnections[0].id) || null;
+  }
+  if (dbActiveConnectionId) {
+    try {
+      const r = await window.api.dbGetReadonly(dbActiveConnectionId);
+      if (dbReadonlyToggle) dbReadonlyToggle.checked = !!r.readOnly;
+    } catch (_) {}
+  }
+  renderDbConnectionList();
+  populateDbConnectionSelect();
+  updateDbMainView();
+  updateDbToolbarState();
+  loadDbSchemaTree();
+  // if some auto-connect connections are still opening, re-check shortly
+  const pending = dbConnections.filter((c) => c.autoConnect && !dbConnectedSet.has(c.id));
+  if (pending.length) scheduleDbAutoConnectRecheck(pending.map((c) => c.id));
+}
+
+function scheduleDbAutoConnectRecheck(ids) {
+  if (dbAutoConnectTimer) clearTimeout(dbAutoConnectTimer);
+  dbAutoConnectTimer = setTimeout(async () => {
+    let changed = false;
+    for (const id of ids) {
+      const connected = await window.api.dbIsConnected(id);
+      if (connected && !dbConnectedSet.has(id)) { dbConnectedSet.add(id); changed = true; }
+    }
+    if (changed) {
+      renderDbConnectionList();
+      updateDbToolbarState();
+      loadDbSchemaTree();
+    }
+  }, 2000);
+}
+
+async function selectDbConnection(id) {
+  dbActiveConnectionId = id;
+  dbCurrentTableData = null;
+  try {
+    const r = await window.api.dbGetReadonly(id);
+    if (dbReadonlyToggle) dbReadonlyToggle.checked = !!r.readOnly;
+  } catch (_) {}
+  if (dbConnectionSelect) dbConnectionSelect.value = id;
+  renderDbConnectionList();
+  updateDbToolbarState();
+  loadDbSchemaTree();
+}
+
+async function connectDb(id) {
+  if (!id) return;
+  if (dbConnectBtn) { dbConnectBtn.disabled = true; dbConnectBtn.textContent = 'Connecting…'; }
+  const res = await window.api.dbConnect(id);
+  if (dbConnectBtn) { dbConnectBtn.textContent = 'Connect'; }
+  if (!res.ok) { alert('Connect failed: ' + res.error); updateDbToolbarState(); return; }
+  dbConnectedSet.add(id);
+  renderDbConnectionList();
+  updateDbToolbarState();
+  loadDbSchemaTree();
+}
+
+async function disconnectDb(id) {
+  if (!id) return;
+  await window.api.dbDisconnect(id);
+  dbConnectedSet.delete(id);
+  if (dbSchemaTree) dbSchemaTree.innerHTML = '';
+  dbTreeCache = {};
+  if (dbStructure) dbStructure.style.display = 'none';
+  if (dbFilterBar) dbFilterBar.style.display = 'none';
+  if (dbResults) dbResults.innerHTML = '<div class="db-results-empty">Disconnected.</div>';
+  renderDbConnectionList();
+  updateDbToolbarState();
+}
+
+async function testActiveDb(id) {
+  if (!id) return;
+  const prev = dbTestBtn.textContent;
+  if (dbTestBtn) { dbTestBtn.textContent = 'Testing…'; dbTestBtn.disabled = true; }
+  const res = await window.api.dbTestId(id);
+  if (dbTestBtn) { dbTestBtn.textContent = prev; dbTestBtn.disabled = false; }
+  alert(res.ok ? 'Connection OK ✓' : 'Connection failed: ' + res.error);
+}
+
+/* ----- Schema tree (multi-connection) ----- */
+const DB_TYPE_ICON = { sqlite: '🗃', postgres: '🐘', mysql: '🐬', mongodb: '🍃' };
+
+function dbEmptyRow(label) {
+  const d = document.createElement('div');
+  d.className = 'db-tree-row';
+  d.style.opacity = '0.5';
+  d.textContent = label;
+  return d;
+}
+
+async function loadDbSchemaTree() {
+  if (!dbSchemaTree) return;
+  dbSchemaTree.innerHTML = '';
+  dbTreeCache = {};
+  const connected = dbConnections.filter((c) => dbConnectedSet.has(c.id));
+  if (!connected.length) {
+    const hint = document.createElement('div');
+    hint.className = 'db-tree-row';
+    hint.style.opacity = '0.6';
+    hint.style.padding = '8px 12px';
+    hint.textContent = 'Connect a database to browse its tables.';
+    dbSchemaTree.appendChild(hint);
+    return;
+  }
+  const nodes = connected.map((c) => makeDbConnectionNode(c));
+  nodes.forEach((n) => dbSchemaTree.appendChild(n));
+  // auto-expand the first connected database so its tables are immediately visible
+  if (nodes.length) {
+    const firstNode = nodes[0];
+    const firstRow = firstNode.querySelector('.db-conn-tree-row');
+    if (firstRow) {
+      firstRow.classList.add('selected');
+      await expandDbConnectionNode(connected[0], firstNode, firstRow);
+    }
+  }
+}
+
+async function expandDbConnectionNode(conn, node, row) {
+  const caret = row.querySelector('.db-tree-caret');
+  caret.textContent = '▼';
+  if (conn.id !== dbActiveConnectionId) {
+    dbActiveConnectionId = conn.id;
+    if (dbConnectionSelect) dbConnectionSelect.value = conn.id;
+    renderDbConnectionList();
+    updateDbToolbarState();
+  }
+  const children = document.createElement('div');
+  children.className = 'db-tree-children';
+  children.appendChild(dbLoadingRow());
+  node.appendChild(children);
+  try {
+    let schemas;
+    const key = 'conn:' + conn.id;
+    if (dbTreeCache[key]) {
+      schemas = dbTreeCache[key];
+    } else {
+      const res = await window.api.dbSchemas(conn.id);
+      if (!res.ok) throw new Error(res.error);
+      schemas = res.data || [];
+      dbTreeCache[key] = schemas;
+    }
+    if (!node.isConnected) return;
+    children.innerHTML = '';
+    if (!schemas.length) {
+      children.appendChild(dbEmptyRow('(no schemas)'));
+    } else if (schemas.length === 1) {
+      await fillDbTableChildren(conn.id, schemas[0].name, children);
+    } else {
+      schemas.forEach((s) => children.appendChild(makeDbSchemaNode(conn.id, s.name)));
+    }
+  } catch (err) {
+    if (node.isConnected) {
+      children.innerHTML = '';
+      children.appendChild(dbErrorRow(err.message));
+    }
+  }
+}
+
+function makeDbConnectionNode(conn) {
+  const node = document.createElement('div');
+  node.className = 'db-tree-node';
+  const row = document.createElement('div');
+  row.className = 'db-tree-row db-conn-tree-row';
+  const typeIcon = DB_TYPE_ICON[conn.type] || '🗄';
+  row.innerHTML = '<span class="db-tree-caret">▶</span><span class="db-tree-icon">' + typeIcon + '</span><span class="db-tree-label">' + escapeHtml(conn.name || 'unnamed') + '</span>';
+  node.appendChild(row);
+  row.addEventListener('click', () => {
+    const caret = row.querySelector('.db-tree-caret');
+    const expanded = node.querySelector('.db-tree-children');
+    if (expanded) { expanded.remove(); caret.textContent = '▶'; return; }
+    expandDbConnectionNode(conn, node, row);
+  });
+  return node;
+}
+
+function makeDbSchemaNode(connId, schemaName) {
+  const node = document.createElement('div');
+  node.className = 'db-tree-node';
+  const row = document.createElement('div');
+  row.className = 'db-tree-row';
+  row.innerHTML = '<span class="db-tree-caret">▶</span><span class="db-tree-icon">📂</span><span class="db-tree-label">' + escapeHtml(schemaName) + '</span>';
+  node.appendChild(row);
+  row.addEventListener('click', async () => {
+    const caret = row.querySelector('.db-tree-caret');
+    const expanded = node.querySelector('.db-tree-children');
+    if (expanded) { expanded.remove(); caret.textContent = '▶'; return; }
+    caret.textContent = '▼';
+    const children = document.createElement('div');
+    children.className = 'db-tree-children';
+    children.appendChild(dbLoadingRow());
+    node.appendChild(children);
+    try {
+      await fillDbTableChildren(connId, schemaName, children, true);
+    } catch (err) {
+      children.innerHTML = '';
+      children.appendChild(dbErrorRow(err.message));
+    }
+  });
+  return node;
+}
+
+async function fillDbTableChildren(connId, schemaName, container, useCache) {
+  const key = 's:' + connId + ':' + schemaName;
+  let tables;
+  if (useCache && dbTreeCache[key]) {
+    tables = dbTreeCache[key];
+  } else {
+    const res = await window.api.dbTables(connId, schemaName);
+    if (!res.ok) throw new Error(res.error);
+    tables = res.data || [];
+    dbTreeCache[key] = tables;
+  }
+  if (!container.isConnected) return;
+  container.innerHTML = '';
+  if (!tables.length) container.appendChild(dbEmptyRow('(empty)'));
+  tables.forEach((t) => container.appendChild(makeDbTableNode(connId, schemaName, t)));
+}
+
+function makeDbTableNode(connId, schemaName, table) {
+  const node = document.createElement('div');
+  node.className = 'db-tree-node';
+  const row = document.createElement('div');
+  row.className = 'db-tree-row';
+  const icon = table.type === 'view' ? '👁' : '🗂';
+  row.innerHTML = '<span class="db-tree-caret">▶</span><span class="db-tree-icon">' + icon + '</span><span class="db-tree-label">' + escapeHtml(table.name) + '</span>';
+  node.appendChild(row);
+
+  row.querySelector('.db-tree-caret').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const caret = row.querySelector('.db-tree-caret');
+    const expanded = node.querySelector('.db-tree-children');
+    if (expanded) { expanded.remove(); caret.textContent = '▶'; return; }
+    caret.textContent = '▼';
+    const children = document.createElement('div');
+    children.className = 'db-tree-children';
+    children.appendChild(dbLoadingRow());
+    node.appendChild(children);
+    try {
+      const key = 'c:' + connId + ':' + schemaName + ':' + table.name;
+      let cols = dbTreeCache[key];
+      if (!cols) {
+        const res = await window.api.dbColumns(connId, schemaName, table.name);
+        if (!res.ok) throw new Error(res.error);
+        cols = res.data || [];
+        dbTreeCache[key] = cols;
+      }
+      children.innerHTML = '';
+      cols.forEach((c) => {
+        const crow = document.createElement('div');
+        crow.className = 'db-column-row';
+        crow.innerHTML = '<span class="db-column-pk">' + (c.pk ? '🔑' : '') + '</span>'
+          + '<span class="db-column-name">' + escapeHtml(c.name) + '</span>'
+          + '<span class="db-column-type">' + escapeHtml(c.type || '') + (c.notNull ? ' NOT NULL' : '') + '</span>';
+        children.appendChild(crow);
+      });
+    } catch (err) {
+      children.innerHTML = '';
+      children.appendChild(dbErrorRow(err.message));
+    }
+  });
+
+  row.addEventListener('click', () => {
+    document.querySelectorAll('.db-tree-row.selected').forEach((r) => r.classList.remove('selected'));
+    row.classList.add('selected');
+    openTableInDb(connId, schemaName, table.name);
+  });
+  return node;
+}
+
+async function openTableInDb(connId, schema, table) {
+  if (connId && connId !== dbActiveConnectionId) {
+    dbActiveConnectionId = connId;
+    if (dbConnectionSelect) dbConnectionSelect.value = connId;
+    renderDbConnectionList();
+    updateDbToolbarState();
+  }
+  dbCurrentTableData = { connId, schema, table, limit: 1000, offset: 0, total: 0, filter: '', filterColumn: '' };
+  await loadDbTableStructure(connId, schema, table);
+  populateDbFilterColumns(connId, schema, table);
+  if (dbFilterBar) dbFilterBar.style.display = 'flex';
+  if (dbFilterInput) dbFilterInput.value = '';
+  if (dbFilterColumn) dbFilterColumn.value = '';
+  applyDbFilterInputType('');
+  await loadDbTablePage();
+}
+
+async function loadDbTableStructure(connId, schema, table) {
+  if (!dbStructure || !dbStructureContent) return;
+  dbStructure.style.display = 'flex';
+  dbStructureTitle.textContent = 'Structure: ' + table;
+  dbStructureContent.innerHTML = '';
+  dbStructureContent.appendChild(dbLoadingRow('Loading structure…'));
+  try {
+    const [colsRes, idxRes] = await Promise.all([
+      window.api.dbColumns(connId, schema, table),
+      window.api.dbIndexes(connId, schema, table),
+    ]);
+    dbStructureContent.innerHTML = '';
+    if (colsRes.ok && colsRes.data) {
+      const tbl = document.createElement('table');
+      tbl.className = 'db-results-table';
+      const thead = document.createElement('thead');
+      thead.innerHTML = '<tr><th>Column</th><th>Type</th><th>Null</th><th>Key</th><th>Default</th></tr>';
+      tbl.appendChild(thead);
+      const tb = document.createElement('tbody');
+      colsRes.data.forEach((c) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + escapeHtml(c.name) + '</td>'
+          + '<td>' + escapeHtml(c.type || '') + '</td>'
+          + '<td>' + (c.notNull ? 'NO' : 'YES') + '</td>'
+          + '<td>' + (c.pk ? '🔑 PK' : '') + '</td>'
+          + '<td>' + escapeHtml(c.defaultValue == null ? '' : String(c.defaultValue)) + '</td>';
+        tb.appendChild(tr);
+      });
+      tbl.appendChild(tb);
+      dbStructureContent.appendChild(tbl);
+    }
+    if (idxRes.ok && idxRes.data && idxRes.data.length) {
+      const idxTitle = document.createElement('div');
+      idxTitle.className = 'db-field-label';
+      idxTitle.style.padding = '8px 12px 2px';
+      idxTitle.textContent = 'Indexes';
+      dbStructureContent.appendChild(idxTitle);
+      const list = document.createElement('div');
+      list.style.padding = '0 12px 6px';
+      idxRes.data.forEach((i) => {
+        const d = document.createElement('div');
+        d.className = 'db-column-row';
+        d.innerHTML = '<span class="db-column-name">' + escapeHtml(i.name) + '</span>'
+          + '<span class="db-column-type">' + (i.unique ? 'UNIQUE ' : '') + '(' + (i.columns || []).map(escapeHtml).join(', ') + ')</span>';
+        list.appendChild(d);
+      });
+      dbStructureContent.appendChild(list);
+    }
+  } catch (err) {
+    dbStructureContent.innerHTML = '';
+    dbStructureContent.appendChild(dbErrorRow(err.message));
+  }
+}
+
+async function populateDbFilterColumns(connId, schema, table) {
+  if (!dbFilterColumn) return;
+  dbFilterColumn.innerHTML = '<option value="">All columns</option>';
+  dbFilterColumnTypes = {};
+  try {
+    const res = await window.api.dbColumns(connId, schema, table);
+    if (res.ok && res.data) {
+      res.data.forEach((c) => {
+        dbFilterColumnTypes[c.name] = dbColumnTypeCategory(c.type);
+        const opt = document.createElement('option');
+        opt.value = c.name;
+        opt.textContent = c.name + ' (' + (c.type || '?') + ')';
+        dbFilterColumn.appendChild(opt);
+      });
+    }
+  } catch (_) {}
+}
+
+function dbColumnTypeCategory(type) {
+  const t = String(type || '').toLowerCase().replace(/\([^)]*\)/g, '').trim();
+  if (t === 'boolean' || t === 'bool') return 'boolean';
+  if (/^(int|integer|bigint|smallint|mediumint|tinyint|serial|bigserial)/.test(t)) return 'integer';
+  if (/^(real|double|float|decimal|numeric|money)/.test(t)) return 'number';
+  if (/^(timestamp|timestamptz|datetime|date|time|timetz)/.test(t)) return 'datetime';
+  return 'text';
+}
+
+function applyDbFilterInputType(column) {
+  if (!dbFilterInput) return;
+  const category = column ? (dbFilterColumnTypes[column] || 'text') : 'text';
+  dbFilterInput.value = '';
+  dbFilterInput.style.display = '';
+  if (category === 'integer' || category === 'number') {
+    dbFilterInput.type = 'number';
+    dbFilterInput.step = category === 'integer' ? '1' : 'any';
+    dbFilterInput.placeholder = 'Exact match…';
+  } else if (category === 'boolean') {
+    dbFilterInput.type = 'text';
+    dbFilterInput.placeholder = 'true / false';
+  } else if (category === 'datetime') {
+    dbFilterInput.type = 'text';
+    dbFilterInput.placeholder = 'e.g. 2024-01-15';
+  } else {
+    dbFilterInput.type = 'text';
+    dbFilterInput.placeholder = column ? 'Contains…' : 'Filter rows…';
+  }
+}
+
+function buildDbFilterWhere(searchText, column) {
+  if (!searchText || !String(searchText).trim()) return null;
+  const val = String(searchText).trim();
+  const dbType = dbActiveType();
+  const q = (name) => {
+    if (dbType === 'mysql') return '`' + String(name).replace(/`/g, '``') + '`';
+    return '"' + String(name).replace(/"/g, '""') + '"';
+  };
+  if (column) {
+    const category = dbFilterColumnTypes[column] || 'text';
+    if (category === 'integer' || category === 'number') {
+      if (!/^-?\d*\.?\d+$/.test(val)) return null;
+      return q(column) + ' = ' + val;
+    }
+    if (category === 'boolean') {
+      return q(column) + ' = ' + (/^(t|true|1|y|yes)$/i.test(val) ? 'TRUE' : 'FALSE');
+    }
+    return q(column) + " LIKE '%" + val.replace(/'/g, "''") + "%'";
+  }
+  const escaped = val.replace(/'/g, "''");
+  const textCols = Object.keys(dbFilterColumnTypes).filter((c) => dbFilterColumnTypes[c] === 'text');
+  const cols = textCols.length ? textCols : Object.keys(dbFilterColumnTypes);
+  if (!cols.length) return null;
+  return cols.map((c) => q(c) + " LIKE '%" + escaped + "%'").join(' OR ');
+}
+
+async function loadDbTablePage() {
+  if (!dbCurrentTableData) return;
+  const { connId, schema, table, limit, offset, filter, filterColumn } = dbCurrentTableData;
+  showDbResultsLoading('Loading ' + table + '…');
+  try {
+    const opts = { limit, offset };
+    const where = buildDbFilterWhere(filter, filterColumn);
+    if (where) opts.where = where;
+    const res = await window.api.dbTableData(connId, schema, table, opts);
+    if (!res.ok) throw new Error(res.error);
+    dbCurrentTableData.total = res.data.total;
+    renderDbResults(res.data, { table, showPagination: true });
+  } catch (err) {
+    renderDbError(err.message);
+  }
+}
+
+/* ----- Results ----- */
+function showDbResultsLoading(msg) {
+  if (!dbResults) return;
+  dbResults.innerHTML = '';
+  const d = document.createElement('div');
+  d.className = 'db-results-empty';
+  d.textContent = msg;
+  dbResults.appendChild(d);
+}
+
+function renderDbError(msg) {
+  if (!dbResults) return;
+  dbResults.innerHTML = '';
+  dbResults.appendChild(dbErrorRow(msg));
+}
+
+function renderDbResults(data, ctx) {
+  if (!dbResults) return;
+  dbResults.innerHTML = '';
+  const { columns, rows } = data;
+  const cols = columns && columns.length ? columns : (rows && rows[0] ? Object.keys(rows[0]) : []);
+
+  const toolbar = document.createElement('div');
+  toolbar.className = 'db-results-toolbar';
+  const meta = document.createElement('span');
+  meta.style.fontSize = '11px';
+  meta.style.color = 'var(--text-muted)';
+  let metaText = (rows ? rows.length : 0) + ' row' + ((rows ? rows.length : 0) === 1 ? '' : 's');
+  if (data.timeMs != null) metaText += ' · ' + data.timeMs + 'ms';
+  if (data.affected) metaText += ' · ' + data.affected + ' affected';
+  if (data.truncated) metaText += ' · capped';
+  meta.textContent = metaText;
+  toolbar.appendChild(meta);
+
+  if (ctx && ctx.showPagination && dbCurrentTableData) {
+    const { total, limit, offset } = dbCurrentTableData;
+    const page = Math.floor(offset / limit) + 1;
+    const pages = Math.max(1, Math.ceil(total / limit));
+    const pg = document.createElement('div');
+    pg.className = 'db-pagination';
+    const prev = document.createElement('button');
+    prev.innerHTML = '&lsaquo;';
+    prev.disabled = offset === 0;
+    prev.addEventListener('click', () => { dbCurrentTableData.offset = Math.max(0, offset - limit); loadDbTablePage(); });
+    const info = document.createElement('span');
+    info.textContent = page + ' / ' + pages + '  (' + total + ')';
+    const next = document.createElement('button');
+    next.innerHTML = '&rsaquo;';
+    next.disabled = offset + limit >= total;
+    next.addEventListener('click', () => { dbCurrentTableData.offset = offset + limit; loadDbTablePage(); });
+    pg.appendChild(prev); pg.appendChild(info); pg.appendChild(next);
+    toolbar.appendChild(pg);
+  }
+
+  const exportBtn = document.createElement('button');
+  exportBtn.className = 'db-export-btn';
+  exportBtn.textContent = '⤓ Export CSV';
+  exportBtn.disabled = !rows || !rows.length;
+  exportBtn.addEventListener('click', () => exportDbCsv(cols, rows, ctx));
+  toolbar.appendChild(exportBtn);
+  dbResults.appendChild(toolbar);
+
+  if (!rows || !rows.length) {
+    const empty = document.createElement('div');
+    empty.className = 'db-results-empty';
+    empty.textContent = 'No rows.';
+    dbResults.appendChild(empty);
+    return;
+  }
+
+  const tbl = document.createElement('table');
+  tbl.className = 'db-results-table';
+  const thead = document.createElement('thead');
+  const htr = document.createElement('tr');
+  cols.forEach((c) => { const th = document.createElement('th'); th.textContent = c; htr.appendChild(th); });
+  thead.appendChild(htr);
+  tbl.appendChild(thead);
+  const tb = document.createElement('tbody');
+  rows.forEach((r) => {
+    const tr = document.createElement('tr');
+    cols.forEach((c) => {
+      const td = document.createElement('td');
+      const v = r[c];
+      let display;
+      if (v == null) { display = 'NULL'; td.className = 'db-cell-null'; }
+      else if (typeof v === 'object') { display = JSON.stringify(v); }
+      else { display = String(v); }
+      td.textContent = display;
+      td.title = display;
+      tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  tbl.appendChild(tb);
+  dbResults.appendChild(tbl);
+}
+
+function exportDbCsv(columns, rows, ctx) {
+  const cols = columns && columns.length ? columns : (rows[0] ? Object.keys(rows[0]) : []);
+  const esc = (v) => {
+    if (v == null) return '';
+    const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [cols.join(',')];
+  rows.forEach((r) => lines.push(cols.map((c) => esc(r[c])).join(',')));
+  const csv = lines.join('\n');
+  const name = ctx && ctx.table ? ctx.table : 'query-result';
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/* ----- Query ----- */
+function loadDbHistory() {
+  try { dbHistory = JSON.parse(localStorage.getItem('arkod-db-history') || '[]'); }
+  catch (_) { dbHistory = []; }
+  dbHistoryIndex = dbHistory.length;
+}
+function pushDbHistory(q) {
+  if (!q || !q.trim()) return;
+  dbHistory = dbHistory.filter((h) => h !== q);
+  dbHistory.push(q);
+  if (dbHistory.length > 100) dbHistory = dbHistory.slice(-100);
+  dbHistoryIndex = dbHistory.length;
+  try { localStorage.setItem('arkod-db-history', JSON.stringify(dbHistory)); } catch (_) {}
+}
+
+async function runDbQuery() {
+  if (!dbActiveConnectionId || !dbConnectedSet.has(dbActiveConnectionId)) return;
+  const sql = dbQueryEditor ? dbQueryEditor.value : '';
+  if (!sql.trim()) return;
+  pushDbHistory(sql);
+  if (dbRunBtn) { dbRunBtn.disabled = true; dbRunBtn.textContent = 'Running…'; }
+  showDbResultsLoading('Running query…');
+  try {
+    const res = await window.api.dbQuery(dbActiveConnectionId, sql, []);
+    if (!res.ok) throw new Error(res.error);
+    if (dbStructure) dbStructure.style.display = 'none';
+    if (dbFilterBar) dbFilterBar.style.display = 'none';
+    renderDbResults(res.data, { table: null });
+  } catch (err) {
+    renderDbError(err.message);
+  } finally {
+    if (dbRunBtn) { dbRunBtn.textContent = '▶ Run'; }
+    updateDbToolbarState();
+  }
+}
+
+/* ----- Connection modal ----- */
+function updateDbFormFields() {
+  const type = dbFormType ? dbFormType.value : 'sqlite';
+  if (dbFormSqlite) dbFormSqlite.style.display = type === 'sqlite' ? 'flex' : 'none';
+  if (dbFormSql) dbFormSql.style.display = (type === 'postgres' || type === 'mysql') ? 'flex' : 'none';
+  if (dbFormMongo) dbFormMongo.style.display = type === 'mongodb' ? 'flex' : 'none';
+  if ((type === 'postgres' || type === 'mysql') && dbFormPort && !dbFormPort.value) {
+    dbFormPort.value = DB_DEFAULT_PORTS[type] || '';
+  }
+}
+
+function openDbConnectionOverlay(config) {
+  dbEditingId = config ? config.id : null;
+  if (dbOverlayTitle) dbOverlayTitle.textContent = config ? 'Edit Connection' : 'New Connection';
+  const type = config ? config.type : 'sqlite';
+  if (dbFormType) dbFormType.value = type;
+  if (dbFormName) dbFormName.value = config ? (config.name || '') : '';
+  if (dbFormFilePath) dbFormFilePath.value = config ? (config.filePath || '') : '';
+  if (dbFormHost) dbFormHost.value = config ? (config.host || '') : 'localhost';
+  if (dbFormPort) dbFormPort.value = config ? (config.port || '') : (DB_DEFAULT_PORTS[type] || '');
+  if (dbFormUser) dbFormUser.value = config ? (config.user || '') : '';
+  if (dbFormPassword) dbFormPassword.value = '';
+  if (dbFormDatabase) dbFormDatabase.value = config ? (config.database || '') : '';
+  if (dbFormSsl) dbFormSsl.checked = config ? !!config.ssl : false;
+  if (dbFormUri) dbFormUri.value = config ? (config.uri || '') : '';
+  if (dbFormMongoDb) dbFormMongoDb.value = config ? (config.database || '') : '';
+  if (dbFormScope) dbFormScope.value = config ? (config.scope === 'global' ? 'global' : 'project') : 'project';
+  if (dbFormAutoconnect) dbFormAutoconnect.checked = config ? !!config.autoConnect : false;
+  updateDbFormFields();
+  setDbFormStatus('', null);
+  if (dbOverlay) dbOverlay.classList.remove('db-overlay-hidden');
+  setTimeout(() => { if (dbFormName) dbFormName.focus(); }, 0);
+}
+
+function closeDbConnectionOverlay() {
+  if (dbOverlay) dbOverlay.classList.add('db-overlay-hidden');
+  dbEditingId = null;
+}
+
+function gatherDbFormConfig() {
+  const type = dbFormType ? dbFormType.value : 'sqlite';
+  const cfg = { type, name: dbFormName ? dbFormName.value.trim() : '' };
+  if (dbFormScope) cfg.scope = dbFormScope.value === 'global' ? 'global' : 'project';
+  if (dbFormAutoconnect && dbFormAutoconnect.checked) cfg.autoConnect = true;
+  if (type === 'sqlite') {
+    cfg.filePath = dbFormFilePath ? dbFormFilePath.value.trim() : '';
+  } else if (type === 'mongodb') {
+    cfg.uri = dbFormUri ? dbFormUri.value.trim() : '';
+    if (dbFormMongoDb && dbFormMongoDb.value.trim()) cfg.database = dbFormMongoDb.value.trim();
+  } else {
+    cfg.host = dbFormHost ? dbFormHost.value.trim() : 'localhost';
+    cfg.port = dbFormPort && dbFormPort.value ? Number(dbFormPort.value) : DB_DEFAULT_PORTS[type];
+    cfg.user = dbFormUser ? dbFormUser.value.trim() : '';
+    if (dbFormPassword && dbFormPassword.value) cfg.password = dbFormPassword.value;
+    cfg.database = dbFormDatabase ? dbFormDatabase.value.trim() : '';
+    if (dbFormSsl && dbFormSsl.checked) cfg.ssl = true;
+  }
+  return cfg;
+}
+
+function setDbFormStatus(msg, isErr) {
+  if (!dbFormStatus) return;
+  dbFormStatus.textContent = msg || '';
+  dbFormStatus.className = 'db-form-status' + (isErr === true ? ' err' : (isErr === false ? ' ok' : ''));
+}
+
+async function saveDbForm() {
+  const cfg = gatherDbFormConfig();
+  if (!cfg.name) {
+    if (cfg.type === 'sqlite' && cfg.filePath) cfg.name = cfg.filePath.split('/').pop();
+    else if (cfg.database) cfg.name = cfg.database;
+    else cfg.name = cfg.type + ' connection';
+  }
+  if (cfg.type === 'sqlite' && !cfg.filePath) { setDbFormStatus('A database file is required', true); return; }
+  if ((cfg.type === 'postgres' || cfg.type === 'mysql') && !cfg.host) { setDbFormStatus('Host is required', true); return; }
+  if (cfg.type === 'mongodb' && !cfg.uri) { setDbFormStatus('Connection string is required', true); return; }
+  setDbFormStatus('Saving…', null);
+  if (dbEditingId) {
+    const res = await window.api.dbUpdateConnection(dbEditingId, cfg);
+    if (!res.ok) { setDbFormStatus(res.error, true); return; }
+  } else {
+    const res = await window.api.dbAddConnection(cfg);
+    if (!res.ok) { setDbFormStatus(res.error, true); return; }
+  }
+  closeDbConnectionOverlay();
+  await refreshDbConnections(true);
+}
+
+async function testDbForm() {
+  const cfg = gatherDbFormConfig();
+  setDbFormStatus('Testing…', null);
+  const res = await window.api.dbTest(cfg);
+  if (res.ok) setDbFormStatus('Connected ✓', false);
+  else setDbFormStatus(res.error, true);
+}
+
+/* ----- Init ----- */
+async function initDatabaseTab() {
+  if (dbInitialized) return;
+  dbInitialized = true;
+  loadDbHistory();
+  await refreshDbConnections();
+
+  if (dbNewConnectionBtn) dbNewConnectionBtn.addEventListener('click', () => openDbConnectionOverlay(null));
+  if (dbEmptyConnectBtn) dbEmptyConnectBtn.addEventListener('click', () => openDbConnectionOverlay(null));
+  if (dbRefreshBtn) dbRefreshBtn.addEventListener('click', () => refreshDbConnections(true));
+  if (dbConnectBtn) dbConnectBtn.addEventListener('click', () => connectDb(dbActiveConnectionId));
+  if (dbDisconnectBtn) dbDisconnectBtn.addEventListener('click', () => disconnectDb(dbActiveConnectionId));
+  if (dbTestBtn) dbTestBtn.addEventListener('click', () => testActiveDb(dbActiveConnectionId));
+  if (dbEditBtn) dbEditBtn.addEventListener('click', () => {
+    const c = dbActiveConnection();
+    if (c) openDbConnectionOverlay(c);
+  });
+  if (dbDeleteBtn) dbDeleteBtn.addEventListener('click', async () => {
+    const c = dbActiveConnection();
+    if (!c) return;
+    if (!confirm('Delete connection "' + (c.name || '') + '"?\nThe database itself is NOT deleted.')) return;
+    await window.api.dbRemoveConnection(c.id);
+    dbConnectedSet.delete(c.id);
+    if (dbActiveConnectionId === c.id) dbActiveConnectionId = null;
+    await refreshDbConnections(true);
+  });
+  if (dbConnectionSelect) dbConnectionSelect.addEventListener('change', () => selectDbConnection(dbConnectionSelect.value));
+  if (dbRunBtn) dbRunBtn.addEventListener('click', runDbQuery);
+  if (dbReadonlyToggle) dbReadonlyToggle.addEventListener('change', async () => {
+    if (dbActiveConnectionId) await window.api.dbSetReadonly(dbActiveConnectionId, dbReadonlyToggle.checked);
+  });
+  if (dbFilterInput) dbFilterInput.addEventListener('input', () => {
+    if (!dbCurrentTableData) return;
+    dbCurrentTableData.filter = dbFilterInput.value;
+    dbCurrentTableData.offset = 0;
+    if (dbFilterTimer) clearTimeout(dbFilterTimer);
+    dbFilterTimer = setTimeout(() => loadDbTablePage(), 350);
+  });
+  if (dbFilterColumn) dbFilterColumn.addEventListener('change', () => {
+    if (!dbCurrentTableData) return;
+    applyDbFilterInputType(dbFilterColumn.value);
+    dbCurrentTableData.filter = '';
+    dbCurrentTableData.filterColumn = dbFilterColumn.value;
+    dbCurrentTableData.offset = 0;
+    loadDbTablePage();
+  });
+
+  if (dbFormType) dbFormType.addEventListener('change', updateDbFormFields);
+  if (dbFormBrowse) dbFormBrowse.addEventListener('click', async () => {
+    const res = await window.api.dbPickSqliteFile();
+    if (res.ok && res.filePath && dbFormFilePath) dbFormFilePath.value = res.filePath;
+  });
+  if (dbFormSaveBtn) dbFormSaveBtn.addEventListener('click', saveDbForm);
+  if (dbFormCancelBtn) dbFormCancelBtn.addEventListener('click', closeDbConnectionOverlay);
+  if (dbFormTestBtn) dbFormTestBtn.addEventListener('click', testDbForm);
+  if (dbOverlay) dbOverlay.addEventListener('click', (e) => { if (e.target === dbOverlay) closeDbConnectionOverlay(); });
+
+  if (dbQueryEditor) {
+    dbQueryEditor.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); runDbQuery(); return; }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (dbHistoryIndex > 0) { dbHistoryIndex--; dbQueryEditor.value = dbHistory[dbHistoryIndex] || ''; }
+      } else if ((e.metaKey || e.ctrlKey) && e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (dbHistoryIndex < dbHistory.length - 1) { dbHistoryIndex++; dbQueryEditor.value = dbHistory[dbHistoryIndex] || ''; }
+        else { dbHistoryIndex = dbHistory.length; dbQueryEditor.value = ''; }
+      }
+    });
+  }
+}
+
+async function openSqliteFileInDatabase(filePath) {
+  switchSidebarTab('database');
+  if (!dbInitialized) await initDatabaseTab();
+  await refreshDbConnections(true);
+  let conn = dbConnections.find((c) => c.type === 'sqlite' && c.filePath === filePath);
+  if (!conn) {
+    const res = await window.api.dbAddConnection({ type: 'sqlite', name: filePath.split('/').pop(), filePath });
+    if (!res.ok) { alert('Failed to add connection: ' + res.error); return; }
+    await refreshDbConnections(true);
+    conn = dbConnections.find((c) => c.type === 'sqlite' && c.filePath === filePath);
+  }
+  if (conn) {
+    await selectDbConnection(conn.id);
+    if (!dbConnectedSet.has(conn.id)) await connectDb(conn.id);
+  }
+}
+
+if (sashDbSidebar) {
+  const dbConnectionsSection = document.getElementById('db-connections-section');
+  const dbSchemaSection = document.getElementById('db-schema-section');
+  sashDbSidebar.addEventListener('mousedown', (e) => {
+    if (!sidebarVisible) return;
+    sashDrag = { type: 'db-sidebar', startY: e.clientY, startTop: dbConnectionsSection.offsetHeight, total: dbConnectionsSection.offsetHeight + dbSchemaSection.offsetHeight };
+    sashDbSidebar.classList.add('active');
+    document.body.classList.add('dragging');
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!sashDrag || sashDrag.type !== 'db-sidebar') return;
+    const delta = e.clientY - sashDrag.startY;
+    const minH = 60;
+    let topH = Math.max(minH, sashDrag.startTop + delta);
+    let botH = sashDrag.total - topH;
+    if (botH < minH) { botH = minH; topH = sashDrag.total - botH; }
+    dbConnectionsSection.style.flex = '0 0 ' + topH + 'px';
+    dbSchemaSection.style.flex = '0 0 ' + botH + 'px';
   });
 }
 

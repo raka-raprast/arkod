@@ -1,10 +1,11 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('electron');
 const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const LspManager = require('./lsp/manager');
 const { unifiedDiff } = require('./diff');
+const dbManager = require('./db');
 
 try { require('electron-reload')(__dirname); } catch (_) {}
 
@@ -202,12 +203,17 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
   startFileWatcher(cwd);
+  initDbConnections();
 });
 
 app.on('window-all-closed', () => {
   stopFileWatcher();
   lspManager.shutdown();
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  dbManager.closeAll();
 });
 
 app.on('activate', () => {
@@ -532,7 +538,7 @@ ipcMain.handle('mcp:test', (_event, entry) => {
   });
 });
 
-ipcMain.handle('cwd:set', (_event, dir) => {
+ipcMain.handle('cwd:set', async (_event, dir) => {
   if (dir && fs.existsSync(dir)) {
     cwd = dir;
     activeSessionId = null;
@@ -540,6 +546,7 @@ ipcMain.handle('cwd:set', (_event, dir) => {
     registerProject(cwd);
     trackProjectOpened(cwd);
     startFileWatcher(cwd);
+    await reloadDbForCwd();
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('cwd:changed', cwd);
     }
@@ -559,6 +566,7 @@ ipcMain.handle('cwd:pick', async () => {
     registerProject(cwd);
     trackProjectOpened(cwd);
     startFileWatcher(cwd);
+    await reloadDbForCwd();
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('cwd:changed', cwd);
     }
@@ -2158,6 +2166,233 @@ ipcMain.handle('git:commit-gen', async () => {
   } catch (err) {
     return { error: err.message };
   }
+});
+
+/* ===== Database (see PLAN_DATABASE.md) ===== */
+const DB_GLOBAL_FILE = path.join(os.homedir(), '.omp', 'agent', 'arkod-db.json');
+
+function dbProjectFilePath(projectDir) {
+  return path.join(projectDir || cwd || '', '.arkod-db.json');
+}
+
+function dbEncrypt(plain) {
+  if (!plain) return null;
+  try {
+    if (safeStorage && safeStorage.isEncryptionAvailable()) {
+      const buf = safeStorage.encryptString(plain);
+      // verify the round-trip before persisting, so we never store data we can't decrypt back
+      safeStorage.decryptString(buf);
+      return '$enc:' + buf.toString('base64');
+    }
+  } catch (_) {}
+  return plain;
+}
+
+function dbDecrypt(stored) {
+  if (!stored || typeof stored !== 'string') return stored;
+  if (stored.startsWith('$enc:')) {
+    try { return safeStorage.decryptString(Buffer.from(stored.slice(5), 'base64')); }
+    catch (_) { return ''; }
+  }
+  return stored;
+}
+
+function readDbJson(filePath) {
+  try {
+    if (filePath && fs.existsSync(filePath)) {
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      if (data && Array.isArray(data.connections)) return data.connections;
+    }
+  } catch (_) {}
+  return [];
+}
+
+function writeDbJson(filePath, list) {
+  try { fs.writeFileSync(filePath, JSON.stringify({ connections: list }, null, 2)); } catch (_) {}
+}
+
+function sanitizeConfigForStore(config) {
+  const c = { ...config };
+  if (c.password) c.password = dbEncrypt(c.password);
+  if (c.uri) c.uri = dbEncrypt(c.uri);
+  return c;
+}
+
+function hydrateConfig(stored) {
+  const c = { ...stored };
+  if (c.password) c.password = dbDecrypt(c.password);
+  if (c.uri) c.uri = dbDecrypt(c.uri);
+  return c;
+}
+
+function redactConfig(config) {
+  const c = { ...config };
+  if (c.password) c.password = '';
+  if (c.uri && /\/\/[^:@/]+:[^@/]+@/.test(c.uri)) {
+    c.uri = c.uri.replace(/(\/\/[^:@/]+:)[^@/]+(@)/, '$1****$2');
+  }
+  return c;
+}
+
+function defaultConnectionName(config) {
+  if (config.type === 'sqlite' && config.filePath) return path.basename(config.filePath);
+  if (config.database) return config.database;
+  return (config.type || 'db') + ' connection';
+}
+
+// Persist the manager's in-memory state to both scope files.
+function persistDbConnections() {
+  const all = dbManager.allConfigs();
+  const globalList = all.filter((c) => c.scope !== 'project').map(sanitizeConfigForStore);
+  const projectList = all.filter((c) => c.scope === 'project').map(sanitizeConfigForStore);
+  writeDbJson(DB_GLOBAL_FILE, globalList);
+  if (cwd) writeDbJson(dbProjectFilePath(), projectList);
+}
+
+function registerDbList(list, scope) {
+  list.forEach((s) => {
+    if (!s.id) return;
+    const cfg = hydrateConfig(s);
+    cfg.scope = scope;
+    dbManager.setConfig(s.id, cfg);
+    if (cfg.autoConnect) dbManager.connect(s.id).catch(() => {});
+  });
+}
+
+function initDbConnections() {
+  registerDbList(readDbJson(DB_GLOBAL_FILE), 'global');
+  if (cwd) registerDbList(readDbJson(dbProjectFilePath()), 'project');
+}
+
+// Called when cwd changes: drop the old project's connections, load the new one's.
+async function reloadDbForCwd() {
+  const projectIds = dbManager.allConfigs()
+    .filter((c) => c.scope === 'project')
+    .map((c) => c.id);
+  for (const id of projectIds) {
+    await dbManager.disconnect(id);
+    dbManager.remove(id);
+  }
+  if (cwd) registerDbList(readDbJson(dbProjectFilePath()), 'project');
+}
+
+ipcMain.handle('db:list-connections', () => {
+  return dbManager.allConfigs().map((c) => ({
+    ...redactConfig(c),
+    connected: dbManager.isConnected(c.id),
+  }));
+});
+
+ipcMain.handle('db:add-connection', (_e, config) => {
+  if (!config || !config.type) return { ok: false, error: 'Connection type is required' };
+  const scope = config.scope === 'project' ? 'project' : 'global';
+  if (scope === 'project' && !cwd) return { ok: false, error: 'Open a project folder before adding a project-scoped connection' };
+  const all = dbManager.allConfigs();
+  const name = (config.name && String(config.name).trim()) || defaultConnectionName(config);
+  if (all.some((s) => s.name === name && (s.scope || 'global') === scope)) {
+    return { ok: false, error: 'A connection with that name already exists in this scope' };
+  }
+  const full = { ...config, name, scope };
+  const id = dbManager.register(full);
+  persistDbConnections();
+  if (full.autoConnect) dbManager.connect(id).catch(() => {});
+  return { ok: true, id, config: redactConfig({ ...full, id }) };
+});
+
+ipcMain.handle('db:update-connection', (_e, id, patch) => {
+  const existing = dbManager.getConfig(id);
+  if (!existing) return { ok: false, error: 'Connection not found' };
+  const merged = { ...existing, ...patch };
+  if (patch && patch.password === '' && existing.password) merged.password = existing.password;
+  if (patch && patch.uri === '' && existing.uri) merged.uri = existing.uri;
+  dbManager.setConfig(id, merged);
+  persistDbConnections();
+  return { ok: true, config: redactConfig(merged) };
+});
+
+ipcMain.handle('db:remove-connection', async (_e, id) => {
+  await dbManager.disconnect(id);
+  dbManager.remove(id);
+  persistDbConnections();
+  return { ok: true };
+});
+
+ipcMain.handle('db:set-readonly', (_e, id, readOnly) => {
+  if (!dbManager.has(id)) return { ok: false, error: 'Connection not found' };
+  dbManager.setReadOnly(id, readOnly);
+  const cfg = dbManager.getConfig(id);
+  if (cfg) { cfg.readOnly = !!readOnly; persistDbConnections(); }
+  return { ok: true };
+});
+
+ipcMain.handle('db:get-readonly', (_e, id) => ({ readOnly: dbManager.getReadOnly(id) }));
+
+ipcMain.handle('db:connect', async (_e, id) => {
+  try { await dbManager.connect(id); return { ok: true }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('db:disconnect', async (_e, id) => {
+  try { await dbManager.disconnect(id); return { ok: true }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('db:test', async (_e, config) => {
+  try { await dbManager.test(config); return { ok: true }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('db:test-id', async (_e, id) => {
+  try {
+    const cfg = dbManager.getConfig(id);
+    if (!cfg) return { ok: false, error: 'Connection not found' };
+    await dbManager.test(cfg);
+    return { ok: true };
+  }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('db:is-connected', (_e, id) => dbManager.isConnected(id));
+
+ipcMain.handle('db:schemas', async (_e, id) => {
+  try { return { ok: true, data: await dbManager.schemas(id) }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('db:tables', async (_e, id, schema) => {
+  try { return { ok: true, data: await dbManager.tables(id, schema) }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('db:columns', async (_e, id, schema, table) => {
+  try { return { ok: true, data: await dbManager.columns(id, schema, table) }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('db:indexes', async (_e, id, schema, table) => {
+  try { return { ok: true, data: await dbManager.indexes(id, schema, table) }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('db:query', async (_e, id, sql, params) => {
+  try { return { ok: true, data: await dbManager.query(id, sql, params || []) }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('db:table-data', async (_e, id, schema, table, opts) => {
+  try { return { ok: true, data: await dbManager.tableData(id, schema, table, opts || {}) }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('db:pick-sqlite-file', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    title: 'Choose a SQLite database file',
+    defaultPath: cwd,
+    filters: [{ name: 'SQLite databases', extensions: ['db', 'sqlite', 'sqlite3'] }],
+  });
+  if (result.canceled || !result.filePaths.length) return { ok: false };
+  return { ok: true, filePath: result.filePaths[0] };
 });
 
 ipcMain.handle('term:create', () => {

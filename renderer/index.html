@@ -13,6 +13,7 @@
       <button class="activity-tab active" data-tab="chats" title="Chats">💬</button>
       <button class="activity-tab" data-tab="search" title="Search">🔍</button>
       <button class="activity-tab" data-tab="git" title="Git">⎇</button>
+      <button class="activity-tab" data-tab="database" title="Database">🗄</button>
       <div class="activity-spacer"></div>
       <button id="theme-toggle-btn" class="activity-tab" title="Toggle Light/Dark Theme">🌓</button>
       <button class="activity-tab" data-tab="settings" title="Settings">⚙</button>
@@ -61,6 +62,23 @@
         <div id="git-sidebar-stashes-section">
           <div class="git-sidebar-header">Stashes</div>
           <div id="git-stash-list"></div>
+        </div>
+      </div>
+      <div id="sidebar-database" class="sidebar-panel">
+        <div id="db-connections-section">
+          <div id="sidebar-header">
+            <span>Database</span>
+            <div id="db-header-actions">
+              <button id="db-refresh-btn" title="Refresh">↻</button>
+              <button id="db-new-connection-btn" class="db-new-btn" title="New connection…">+ New</button>
+            </div>
+          </div>
+          <div id="db-connection-list"></div>
+        </div>
+        <div class="sash sash-horizontal" id="sash-db-sidebar"></div>
+        <div id="db-schema-section">
+          <div class="db-sidebar-header">Schema</div>
+          <div id="db-schema-tree"></div>
         </div>
       </div>
       <div id="sidebar-settings" class="sidebar-panel">
@@ -171,6 +189,49 @@
                 </div>
               </div>
               <div id="git-conflict-content"></div>
+            </div>
+          </div>
+        </div>
+        <div id="view-database" class="main-view">
+          <div id="db-not-connected" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px">
+            <span style="font-size:48px;opacity:0.3">🗄</span>
+            <p style="color:#94a3b8;font-size:13px;margin:0">No database connection.</p>
+            <p style="color:#64748b;font-size:11px;margin:0">Create a new connection or open a <code style="background:#1c1a2e;padding:1px 4px;border-radius:2px">.db</code> file from the sidebar.</p>
+            <button id="db-empty-connect-btn" class="settings-btn" style="margin-top:8px">+ New Connection</button>
+          </div>
+          <div id="db-content" style="display:none;flex:1;flex-direction:column;overflow:hidden">
+            <div id="db-toolbar">
+              <select id="db-connection-select" title="Active connection"></select>
+              <span id="db-connection-state" class="db-state-dot" title="Not connected"></span>
+              <button id="db-connect-btn" class="git-action-btn" title="Connect">Connect</button>
+              <button id="db-disconnect-btn" class="git-action-btn" title="Disconnect" disabled>Disconnect</button>
+              <button id="db-test-btn" class="git-action-btn" title="Test connection">Test</button>
+              <label class="db-readonly-toggle" title="Block destructive statements (DROP/UPDATE/DELETE)">
+                <input type="checkbox" id="db-readonly-toggle" checked />
+                <span>Read-only</span>
+              </label>
+              <span style="flex:1"></span>
+              <button id="db-edit-btn" class="git-action-btn" title="Edit this connection">✎ Edit</button>
+              <button id="db-delete-btn" class="db-delete-btn" title="Delete this connection">🗑 Delete</button>
+            </div>
+            <div id="db-query-area">
+              <textarea id="db-query-editor" rows="3" placeholder="-- Run a SQL query…  (Ctrl/Cmd+Enter to run)"></textarea>
+              <button id="db-run-btn" class="db-run-btn" title="Run query (Ctrl/Cmd+Enter)" disabled>▶ Run</button>
+            </div>
+            <div id="db-filter-bar" style="display:none">
+              <input type="text" id="db-filter-input" placeholder="Filter rows…" />
+              <select id="db-filter-column"><option value="">All columns</option></select>
+            </div>
+            <div id="db-main-area">
+              <div id="db-results">
+                <div class="db-results-empty">Run a query or select a table to view its data.</div>
+              </div>
+              <div id="db-structure" style="display:none">
+                <div class="db-section-header">
+                  <span id="db-structure-title" class="db-section-title">Structure</span>
+                </div>
+                <div id="db-structure-content"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -287,6 +348,84 @@
       <div class="confirm-actions">
         <button class="confirm-btn confirm-cancel">Cancel</button>
         <button class="confirm-btn confirm-ok danger-btn">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="db-connection-overlay" class="db-overlay-hidden">
+    <div class="db-overlay-box">
+      <div class="db-overlay-title" id="db-overlay-title">New Connection</div>
+      <div class="db-overlay-body">
+        <label class="db-field-label">Type</label>
+        <select id="db-form-type" class="db-form-input">
+          <option value="sqlite">SQLite</option>
+          <option value="postgres">PostgreSQL</option>
+          <option value="mysql">MySQL</option>
+          <option value="mongodb">MongoDB</option>
+        </select>
+
+        <label class="db-field-label">Name</label>
+        <input id="db-form-name" type="text" class="db-form-input" placeholder="My connection" />
+
+        <label class="db-field-label">Scope</label>
+        <select id="db-form-scope" class="db-form-input">
+          <option value="project">This project</option>
+          <option value="global">Global (all projects)</option>
+        </select>
+
+        <div id="db-form-sqlite" class="db-form-fields">
+          <label class="db-field-label">Database file</label>
+          <div class="db-form-row">
+            <input id="db-form-filePath" type="text" class="db-form-input" placeholder="/path/to/database.db" />
+            <button id="db-form-browse" class="settings-btn">Browse…</button>
+          </div>
+        </div>
+
+        <div id="db-form-sql" class="db-form-fields">
+          <div class="db-form-row">
+            <div style="flex:2">
+              <label class="db-field-label">Host</label>
+              <input id="db-form-host" type="text" class="db-form-input" placeholder="localhost" />
+            </div>
+            <div style="flex:1">
+              <label class="db-field-label">Port</label>
+              <input id="db-form-port" type="number" class="db-form-input" placeholder="5432" />
+            </div>
+          </div>
+          <div class="db-form-row">
+            <div style="flex:1">
+              <label class="db-field-label">User</label>
+              <input id="db-form-user" type="text" class="db-form-input" placeholder="user" />
+            </div>
+            <div style="flex:1">
+              <label class="db-field-label">Password</label>
+              <input id="db-form-password" type="password" class="db-form-input" placeholder="••••" />
+            </div>
+          </div>
+          <label class="db-field-label">Database</label>
+          <input id="db-form-database" type="text" class="db-form-input" placeholder="database name" />
+          <label class="db-field-label db-checkbox-label">
+            <input id="db-form-ssl" type="checkbox" /> <span>Require SSL/TLS</span>
+          </label>
+        </div>
+
+        <div id="db-form-mongo" class="db-form-fields">
+          <label class="db-field-label">Connection string (URI)</label>
+          <input id="db-form-uri" type="text" class="db-form-input" placeholder="mongodb://localhost:27017" />
+          <label class="db-field-label">Default database (optional)</label>
+          <input id="db-form-mongo-db" type="text" class="db-form-input" placeholder="mydb" />
+        </div>
+
+        <label class="db-field-label db-checkbox-label">
+          <input id="db-form-autoconnect" type="checkbox" /> <span>Auto-connect when this project opens</span>
+        </label>
+      </div>
+      <div class="db-overlay-actions">
+        <button id="db-form-test-btn" class="settings-btn">Test</button>
+        <span id="db-form-status" class="db-form-status"></span>
+        <span style="flex:1"></span>
+        <button id="db-form-cancel-btn" class="settings-btn" style="background:#2d2d40">Cancel</button>
+        <button id="db-form-save-btn" class="settings-btn">Save</button>
       </div>
     </div>
   </div>
