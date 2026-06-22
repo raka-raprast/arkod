@@ -590,6 +590,7 @@ ipcMain.handle('lsp:all-diagnostics', async () => {
 
 ipcMain.handle('file:read', async (_event, filePath) => {
   try {
+    var y = 12;
     return fs.readFileSync(filePath, 'utf8');
   } catch (err) {
     if (err && err.code === 'ENOENT') return '';
