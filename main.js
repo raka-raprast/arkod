@@ -1264,7 +1264,12 @@ ipcMain.handle('llm:send', async (_event, payload) => {
 
   fileSnapshots = snapshotTextFiles(cwd);
 
-  const args = ['-p', '--mode', 'json'];
+  const todoInstruction =
+    'When the user request involves multiple steps, structure your response with a concise markdown task list using GitHub task-list syntax: "- [ ] task" for pending and "- [x] task" for completed. ' +
+    'Put this list near the start of your answer. As you finish each step, re-emit the full updated list with the finished item marked "- [x]" so progress is visible. ' +
+    'Keep each task on a single line and avoid nesting. Skip the task list for simple single-step answers.';
+
+  const args = ['-p', '--mode', 'json', '--append-system-prompt', todoInstruction];
   if (activeSessionId) {
     args.push('--resume', activeSessionId);
   }

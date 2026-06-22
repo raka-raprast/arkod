@@ -410,6 +410,9 @@ let inTodo = false;
 let todoEl = null;
 let todoItems = [];
 
+let todoPanelEl = null;
+let todoPanelItems = [];
+
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
@@ -909,6 +912,94 @@ function appendTodoItem(line) {
   return true;
 }
 
+function ensureTodoPanel() {
+  if (todoPanelEl && todoPanelEl.isConnected) return todoPanelEl;
+  todoPanelEl = document.createElement('div');
+  todoPanelEl.id = 'todo-panel';
+  todoPanelEl.classList.add('hidden');
+  todoPanelEl.innerHTML =
+    '<div class="todo-panel-header">' +
+      '<span class="todo-panel-title"><span class="todo-panel-spinner"></span><span class="todo-panel-title-text">Tasks</span></span>' +
+      '<span class="todo-panel-count">0/0</span>' +
+    '</div>' +
+    '<div class="todo-panel-progress"><div class="todo-panel-progress-fill"></div></div>' +
+    '<div class="todo-panel-items"></div>';
+  responseEl.insertBefore(todoPanelEl, responseEl.firstChild);
+  return todoPanelEl;
+}
+
+function syncTodoPanel() {
+  todoPanelItems = todoItems.map((t) => ({ text: t.text, checked: t.checked }));
+  renderTodoPanel();
+}
+
+function renderTodoPanel() {
+  const items = todoPanelItems;
+  const total = items.length;
+  if (total === 0) {
+    clearTodoPanel();
+    return;
+  }
+  const panel = ensureTodoPanel();
+  panel.classList.remove('hidden');
+
+  const completed = items.filter((t) => t.checked).length;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const allDone = completed === total;
+
+  const countEl = panel.querySelector('.todo-panel-count');
+  if (countEl) countEl.textContent = completed + '/' + total;
+
+  const fill = panel.querySelector('.todo-panel-progress-fill');
+  if (fill) {
+    fill.style.width = pct + '%';
+    fill.classList.toggle('complete', allDone);
+  }
+
+  const titleText = panel.querySelector('.todo-panel-title-text');
+  const spinner = panel.querySelector('.todo-panel-spinner');
+  if (allDone) {
+    if (titleText) titleText.textContent = 'All tasks complete';
+    panel.classList.add('done');
+    panel.classList.remove('working');
+    if (spinner) spinner.classList.add('stopped');
+  } else if (busyState) {
+    if (titleText) titleText.textContent = 'Working on tasks…';
+    panel.classList.add('working');
+    panel.classList.remove('done');
+    if (spinner) spinner.classList.remove('stopped');
+  } else {
+    if (titleText) titleText.textContent = 'Tasks';
+    panel.classList.remove('working', 'done');
+    if (spinner) spinner.classList.add('stopped');
+  }
+
+  const itemsEl = panel.querySelector('.todo-panel-items');
+  if (!itemsEl) return;
+  itemsEl.innerHTML = '';
+  for (const item of items) {
+    const row = document.createElement('div');
+    row.className = 'todo-panel-item' + (item.checked ? ' checked' : '');
+    const check = document.createElement('span');
+    check.className = 'todo-panel-check';
+    check.textContent = item.checked ? '\u2713' : '';
+    const text = document.createElement('span');
+    text.className = 'todo-panel-text';
+    text.textContent = item.text;
+    row.appendChild(check);
+    row.appendChild(text);
+    itemsEl.appendChild(row);
+  }
+}
+
+function clearTodoPanel() {
+  todoPanelItems = [];
+  if (todoPanelEl && todoPanelEl.isConnected) {
+    todoPanelEl.remove();
+  }
+  todoPanelEl = null;
+}
+
 function appendFormattedLine(html) {
   if (inFence) {
     if (fenceEl) fenceEl.textContent += html;
@@ -954,10 +1045,12 @@ function processTextChunk(chunk) {
         startTodoBlock();
       }
       appendTodoItem(trimmed);
+      syncTodoPanel();
     } else if (trimmed === '' && inTodo) {
     } else if (inTodo && line.startsWith(' ') && todoItems.length > 0) {
       todoItems[todoItems.length - 1].text += '\n' + trimmed;
       buildTodoBlock();
+      syncTodoPanel();
     } else {
       if (inTodo) closeTodoBlock();
       appendFormattedLine(formatMdLine(line));
@@ -1083,6 +1176,7 @@ function resetResponseState() {
   textBuf = '';
   pendingToolCallEl = null;
   setBusy(false);
+  renderTodoPanel();
   promptEl.disabled = false;
   promptEl.focus();
 }
@@ -1955,6 +2049,7 @@ async function selectSession(id) {
   console.log('[HISTORY] selectSession id:', id);
   activeSessionId = id;
   responseEl.innerHTML = '';
+  clearTodoPanel();
 
   window.api.resumeSession(id);
   loadSessions();
@@ -3048,6 +3143,7 @@ if (!promptEl || !responseEl) {
       if (responseEl.querySelector('.welcome-hero')) {
         responseEl.innerHTML = '';
       }
+      clearTodoPanel();
 
       appendPrompt(text);
       scrollDown();
