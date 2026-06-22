@@ -2796,11 +2796,9 @@ body.dragging .sash.active {
   color: var(--bg);
 }
 
-/* Conflict resolver panel — removed: conflicts are resolved in the file editor */
-
 /* Conflict resolver panel */
 #git-conflict-panel {
-  border-top: 1px solid var(--accent);
+  border-top: 2px solid var(--warning-text);
   background: var(--bg);
   max-height: 60%;
   overflow: hidden;
@@ -2900,23 +2898,25 @@ body.dragging .sash.active {
 }
 
 .conflict-hunk {
-  border: 1px solid var(--warning-border);
-  border-radius: 4px;
-  margin: 6px 0;
+  border: 2px solid var(--warning-text);
+  border-radius: 5px;
+  margin: 8px 0;
   overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.1);
 }
 
 .conflict-hunk.resolved {
-  border-color: var(--success-border);
-  opacity: 0.7;
+  border-color: var(--success);
+  border-width: 1px;
+  box-shadow: none;
 }
 
 .conflict-hunk-toolbar {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
-  background: var(--warning-bg);
+  padding: 5px 10px;
+  background: rgba(251, 191, 36, 0.15);
   border-bottom: 1px solid var(--warning-border);
   flex-wrap: wrap;
 }
@@ -2943,14 +2943,16 @@ body.dragging .sash.active {
 }
 
 .conflict-hunk-btn {
-  background: var(--bg-input);
+  background: var(--bg);
   border: 1px solid var(--border-light);
-  color: var(--text-muted);
-  border-radius: 3px;
-  padding: 1px 8px;
-  font-size: 10px;
+  color: var(--text-light);
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  transition: all 0.12s ease;
 }
 
 .conflict-hunk-btn:hover {
@@ -2959,9 +2961,27 @@ body.dragging .sash.active {
   border-color: var(--accent);
 }
 
+.conflict-hunk-btn:nth-child(1):hover {
+  background: var(--error-bg);
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.conflict-hunk-btn:nth-child(2):hover {
+  background: var(--success-bg);
+  border-color: var(--success);
+  color: var(--success);
+}
+
 .conflict-hunk-btn.undo {
   color: var(--text-dim);
   font-style: italic;
+  opacity: 0.7;
+}
+
+.conflict-hunk-btn.undo:hover {
+  opacity: 1;
+  color: var(--text-bright);
 }
 
 .conflict-side {
@@ -2973,23 +2993,24 @@ body.dragging .sash.active {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  padding: 3px 8px;
-  color: var(--text-dim);
+  padding: 4px 10px;
 }
 
 .conflict-side-ours .conflict-side-label {
-  background: rgba(248, 113, 113, 0.08);
-  color: var(--diff-removed-text);
+  background: rgba(248, 113, 113, 0.18);
+  color: var(--error);
+  border-bottom: 1px solid var(--error-border);
 }
 
 .conflict-side-theirs .conflict-side-label {
-  background: rgba(52, 211, 153, 0.08);
-  color: var(--diff-added-text);
+  background: rgba(52, 211, 153, 0.18);
+  color: var(--success);
+  border-bottom: 1px solid var(--success-border);
 }
 
 .conflict-side pre {
   margin: 0;
-  padding: 4px 12px;
+  padding: 6px 12px;
   white-space: pre-wrap;
   word-break: break-word;
   font-family: inherit;
@@ -2997,13 +3018,13 @@ body.dragging .sash.active {
 }
 
 .conflict-side-ours pre {
-  background: var(--error-bg);
-  border-left: 3px solid var(--error-border);
+  background: rgba(248, 113, 113, 0.08);
+  border-left: 4px solid var(--error);
 }
 
 .conflict-side-theirs pre {
-  background: var(--success-bg);
-  border-left: 3px solid var(--success-border);
+  background: rgba(52, 211, 153, 0.08);
+  border-left: 4px solid var(--success);
 }
 
 .conflict-hunk.resolved .conflict-side:not(.chosen) {
@@ -3011,8 +3032,8 @@ body.dragging .sash.active {
 }
 
 .conflict-hunk.resolved .conflict-side.chosen pre {
-  background: var(--bg-panel);
-  border-left-color: var(--success-border);
+  background: rgba(52, 211, 153, 0.06);
+  border-left: 4px solid var(--success);
 }
 
 /* Git sidebar */

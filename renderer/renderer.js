@@ -3563,6 +3563,23 @@ function countUnresolved(segments) {
   return segments.filter(s => s.type === 'conflict' && !s.resolution).length;
 }
 
+function makeConflictBtns(segIdx) {
+  const btns = document.createElement('div');
+  btns.className = 'conflict-hunk-btns';
+  const mkBtn = (label, res, title) => {
+    const b = document.createElement('button');
+    b.className = 'conflict-hunk-btn';
+    b.textContent = label;
+    b.title = title || '';
+    b.addEventListener('click', (e) => { e.stopPropagation(); resolveHunk(segIdx, res); });
+    return b;
+  };
+  btns.appendChild(mkBtn('Current', 'ours', 'Accept Current (HEAD)'));
+  btns.appendChild(mkBtn('Incoming', 'theirs', 'Accept Incoming'));
+  btns.appendChild(mkBtn('Both', 'both', 'Keep both versions'));
+  return btns;
+}
+
 function renderConflictSide(label, lines, side) {
   const wrap = document.createElement('div');
   wrap.className = 'conflict-side conflict-side-' + side;
@@ -3576,38 +3593,20 @@ function renderConflictSide(label, lines, side) {
   return wrap;
 }
 
-function renderConflictHunk(seg, idx) {
+function renderConflictHunk(seg, segIdx, conflictNum) {
   const hunk = document.createElement('div');
-  hunk.className = 'conflict-hunk';
-  hunk.dataset.idx = String(idx);
+  hunk.className = 'conflict-hunk unresolved';
+  hunk.dataset.segIdx = String(segIdx);
 
   const toolbar = document.createElement('div');
   toolbar.className = 'conflict-hunk-toolbar';
 
   const info = document.createElement('span');
   info.className = 'conflict-hunk-info';
-  info.textContent = 'Conflict ' + (idx + 1);
+  info.textContent = 'Conflict ' + conflictNum;
   toolbar.appendChild(info);
 
-  const btns = document.createElement('div');
-  btns.className = 'conflict-hunk-btns';
-
-  const mkBtn = (label, resolution, title) => {
-    const b = document.createElement('button');
-    b.className = 'conflict-hunk-btn';
-    b.textContent = label;
-    b.title = title || '';
-    b.addEventListener('click', (e) => {
-      e.stopPropagation();
-      resolveHunk(idx, resolution);
-    });
-    return b;
-  };
-
-  btns.appendChild(mkBtn('Current', 'ours', 'Accept Current (HEAD)'));
-  btns.appendChild(mkBtn('Incoming', 'theirs', 'Accept Incoming'));
-  btns.appendChild(mkBtn('Both', 'both', 'Keep both versions'));
-  toolbar.appendChild(btns);
+  toolbar.appendChild(makeConflictBtns(segIdx));
   hunk.appendChild(toolbar);
 
   hunk.appendChild(renderConflictSide('Current (HEAD)', seg.ours, 'ours'));
@@ -3616,9 +3615,9 @@ function renderConflictHunk(seg, idx) {
   return hunk;
 }
 
-function resolveHunk(idx, resolution) {
+function resolveHunk(segIdx, resolution) {
   if (!conflictState) return;
-  const seg = conflictState.segments[idx];
+  const seg = conflictState.segments[segIdx];
   if (!seg || seg.type !== 'conflict') return;
 
   if (seg.resolution === resolution) {
@@ -3631,48 +3630,42 @@ function resolveHunk(idx, resolution) {
 
 function refreshConflictView() {
   if (!conflictState) return;
-  const hunks = gitConflictContent.querySelectorAll('.conflict-hunk');
-  for (const hunk of hunks) {
-    const idx = parseInt(hunk.dataset.idx);
-    const seg = conflictState.segments[idx];
-    if (!seg || seg.type !== 'conflict') continue;
+  let conflictNum = 0;
+  for (let i = 0; i < conflictState.segments.length; i++) {
+    const seg = conflictState.segments[i];
+    if (seg.type !== 'conflict') continue;
+    conflictNum++;
+    const hunk = gitConflictContent.querySelector('.conflict-hunk[data-seg-idx="' + i + '"]');
+    if (!hunk) continue;
+
+    const info = hunk.querySelector('.conflict-hunk-info');
+    const ours = hunk.querySelector('.conflict-side-ours');
+    const theirs = hunk.querySelector('.conflict-side-theirs');
+    const btnsWrap = hunk.querySelector('.conflict-hunk-btns');
+
     if (seg.resolution) {
       hunk.classList.add('resolved');
-      const ours = hunk.querySelector('.conflict-side-ours');
-      const theirs = hunk.querySelector('.conflict-side-theirs');
-      ours.classList.toggle('chosen', seg.resolution === 'ours' || seg.resolution === 'both');
-      theirs.classList.toggle('chosen', seg.resolution === 'theirs' || seg.resolution === 'both');
-      const btns = hunk.querySelector('.conflict-hunk-btns');
-      btns.innerHTML = '';
-      const info = hunk.querySelector('.conflict-hunk-info');
+      hunk.classList.remove('unresolved');
+      const isOurs = seg.resolution === 'ours' || seg.resolution === 'both';
+      const isTheirs = seg.resolution === 'theirs' || seg.resolution === 'both';
+      ours.classList.toggle('chosen', isOurs);
+      theirs.classList.toggle('chosen', isTheirs);
       const label = seg.resolution === 'ours' ? 'Current' : seg.resolution === 'theirs' ? 'Incoming' : 'Both';
-      info.textContent = 'Conflict ' + (idx + 1) + ' → ' + label;
+      info.textContent = 'Conflict ' + conflictNum + '  \u2713 ' + label;
+      btnsWrap.innerHTML = '';
       const undo = document.createElement('button');
       undo.className = 'conflict-hunk-btn undo';
-      undo.textContent = 'undo';
-      undo.addEventListener('click', (e) => { e.stopPropagation(); resolveHunk(idx, seg.resolution); });
-      btns.appendChild(undo);
+      undo.textContent = '\u21ba undo';
+      undo.addEventListener('click', (e) => { e.stopPropagation(); resolveHunk(i, seg.resolution); });
+      btnsWrap.appendChild(undo);
     } else {
       hunk.classList.remove('resolved');
-      const info = hunk.querySelector('.conflict-hunk-info');
-      info.textContent = 'Conflict ' + (idx + 1);
-      const btns = hunk.querySelector('.conflict-hunk-btns');
-      btns.innerHTML = '';
-      const mkBtn = (label, res, title) => {
-        const b = document.createElement('button');
-        b.className = 'conflict-hunk-btn';
-        b.textContent = label;
-        b.title = title || '';
-        b.addEventListener('click', (e) => { e.stopPropagation(); resolveHunk(idx, res); });
-        return b;
-      };
-      btns.appendChild(mkBtn('Current', 'ours', 'Accept Current (HEAD)'));
-      btns.appendChild(mkBtn('Incoming', 'theirs', 'Accept Incoming'));
-      btns.appendChild(mkBtn('Both', 'both', 'Keep both versions'));
-      const ours = hunk.querySelector('.conflict-side-ours');
-      const theirs = hunk.querySelector('.conflict-side-theirs');
+      hunk.classList.add('unresolved');
       ours.classList.remove('chosen');
       theirs.classList.remove('chosen');
+      info.textContent = 'Conflict ' + conflictNum;
+      btnsWrap.innerHTML = '';
+      btnsWrap.appendChild(makeConflictBtns(i));
     }
   }
 
@@ -3700,17 +3693,18 @@ async function showConflictResolver(filePath) {
   gitConflictLabel.textContent = filePath + '  (' + conflicts.length + ' conflict' + (conflicts.length > 1 ? 's' : '') + ')';
 
   gitConflictContent.innerHTML = '';
-  let conflictIdx = 0;
-  for (const seg of segments) {
+  let conflictNum = 0;
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
     if (seg.type === 'context') {
       const ctx = document.createElement('div');
       ctx.className = 'conflict-context';
       const preview = seg.lines.slice(0, 5);
-      ctx.textContent = preview.join('\n') + (seg.lines.length > 5 ? '\n…' : '');
+      ctx.textContent = preview.join('\n') + (seg.lines.length > 5 ? '\n\u2026' : '');
       gitConflictContent.appendChild(ctx);
     } else {
-      gitConflictContent.appendChild(renderConflictHunk(seg, conflictIdx));
-      conflictIdx++;
+      conflictNum++;
+      gitConflictContent.appendChild(renderConflictHunk(seg, i, conflictNum));
     }
   }
 
