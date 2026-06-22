@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('api', {
   getModel: () => ipcRenderer.invoke('model:get'),
   setModel: (model) => ipcRenderer.invoke('model:set', model),
   listModels: () => ipcRenderer.invoke('model:list'),
+  isVisionModel: (selector) => ipcRenderer.invoke('model:is-vision', selector),
   saveAuth: (provider, key) => ipcRenderer.invoke('auth:save', provider, key),
   listAuth: () => ipcRenderer.invoke('auth:list'),
   forgetAuth: (provider) => ipcRenderer.invoke('auth:forget', provider),

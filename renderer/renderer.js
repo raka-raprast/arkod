@@ -2172,92 +2172,120 @@ if (!promptEl || !responseEl) {
     loadSessions();
   });
 
+  function openModelPicker(opts) {
+    const { filter, currentValue, onSelect } = opts;
+    (async () => {
+      const [models, authKeys] = await Promise.all([window.api.listModels(), window.api.listAuth()]);
+      if (!models.length) return;
+      const pool = filter ? models.filter(filter) : models;
+      const loggedProviders = new Set(Object.keys(authKeys));
+
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.3)';
+      overlay.addEventListener('click', () => overlay.remove());
+
+      const picker = document.createElement('div');
+      picker.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#12101f;border:1px solid #2a2a3e;border-radius:8px;padding:8px;z-index:1000;max-height:420px;width:380px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.5)';
+      picker.addEventListener('click', (e) => e.stopPropagation());
+
+      const search = document.createElement('input');
+      search.type = 'text';
+      search.placeholder = 'Filter models...';
+      search.style.cssText = 'width:100%;padding:6px 8px;background:#1c1a2e;color:#cbd5e1;border:1px solid #252536;border-radius:4px;font-size:12px;outline:none;margin-bottom:8px;flex-shrink:0';
+      picker.appendChild(search);
+
+      const list = document.createElement('div');
+      list.style.cssText = 'overflow-y:auto;flex:1;min-height:0';
+      picker.appendChild(list);
+
+      const renderList = (f) => {
+        list.innerHTML = '';
+        const q = (f || '').toLowerCase();
+        const filtered = pool.filter(m => m.selector.toLowerCase().includes(q) || m.name.toLowerCase().includes(q) || m.provider.toLowerCase().includes(q));
+        let lastProvider = '';
+        for (const m of filtered) {
+          if (m.provider !== lastProvider) {
+            const hdr = document.createElement('div');
+            hdr.style.cssText = 'padding:4px 8px;font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;display:flex;align-items:center;gap:4px';
+            const dot = document.createElement('span');
+            dot.style.cssText = `display:inline-block;width:6px;height:6px;border-radius:50%;background:${loggedProviders.has(m.provider) ? '#34d399' : '#252536'}`;
+            hdr.appendChild(dot);
+            hdr.appendChild(document.createTextNode(m.provider));
+            list.appendChild(hdr);
+            lastProvider = m.provider;
+          }
+          const row = document.createElement('div');
+          row.style.cssText = 'padding:5px 8px 5px 16px;cursor:pointer;font-size:12px;color:#cbd5e1;border-radius:3px;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden';
+          const vision = Array.isArray(m.input) && m.input.includes('image');
+          if (vision) {
+            const eye = document.createElement('span');
+            eye.textContent = '\u{1F441}';
+            eye.title = 'supports image input';
+            eye.style.cssText = 'font-size:11px;flex-shrink:0;line-height:1';
+            row.appendChild(eye);
+          }
+          const name = document.createElement('span');
+          name.textContent = m.name;
+          name.style.cssText = 'overflow:hidden;text-overflow:ellipsis';
+          row.appendChild(name);
+          row.title = m.selector + (m.contextWindow ? ' · ' + (m.contextWindow / 1000) + 'k ctx' : '') + (vision ? ' · vision' : '');
+          if (m.selector === currentValue) row.style.cssText += ';background:#0b0b1f';
+          row.addEventListener('mouseenter', () => { if (m.selector !== currentValue) row.style.background = '#1a1829'; });
+          row.addEventListener('mouseleave', () => { if (m.selector !== currentValue) row.style.background = ''; });
+          row.addEventListener('click', async () => {
+            overlay.remove();
+            onSelect(m.selector, m);
+          });
+          list.appendChild(row);
+        }
+        if (!filtered.length) {
+          const empty = document.createElement('div');
+          empty.style.cssText = 'padding:8px;font-size:11px;color:#64748b';
+          empty.textContent = 'No matching models.';
+          list.appendChild(empty);
+        }
+
+        const sep = document.createElement('div');
+        sep.style.cssText = 'margin:6px 0;border-top:1px solid #2a2a3e';
+        list.appendChild(sep);
+
+        const loginRow = document.createElement('div');
+        loginRow.style.cssText = 'padding:5px 8px;cursor:pointer;font-size:12px;color:#a5b4fc;border-radius:3px';
+        loginRow.textContent = '+ Login to provider...';
+        loginRow.addEventListener('mouseenter', () => { loginRow.style.background = '#1a1829'; });
+        loginRow.addEventListener('mouseleave', () => { loginRow.style.background = ''; });
+        loginRow.addEventListener('click', () => {
+          overlay.remove();
+          switchSidebarTab('settings');
+        });
+        list.appendChild(loginRow);
+      };
+
+      search.addEventListener('input', () => renderList(search.value));
+      renderList('');
+
+      overlay.appendChild(picker);
+      document.body.appendChild(overlay);
+      search.focus();
+    })();
+  }
+
   (async () => {
     const result = await window.api.getModel();
     if (result && result.model && modelInfoEl) {
-      const model = result.model;
-      modelInfoEl.textContent = model;
+      modelInfoEl.textContent = result.model;
       modelInfoEl.style.cursor = 'pointer';
       modelInfoEl.title = 'Click to change model';
-
-      modelInfoEl.addEventListener('click', async () => {
-        const old = modelInfoEl.textContent;
-        const [models, authKeys] = await Promise.all([window.api.listModels(), window.api.listAuth()]);
-        if (!models.length) return;
-
-        const loggedProviders = new Set(Object.keys(authKeys));
-
-        const overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.3)';
-        overlay.addEventListener('click', () => overlay.remove());
-
-        const picker = document.createElement('div');
-        picker.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#12101f;border:1px solid #2a2a3e;border-radius:8px;padding:8px;z-index:1000;max-height:420px;width:380px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.5)';
-        picker.addEventListener('click', (e) => e.stopPropagation());
-
-        const search = document.createElement('input');
-        search.type = 'text';
-        search.placeholder = 'Filter models...';
-        search.style.cssText = 'width:100%;padding:6px 8px;background:#1c1a2e;color:#cbd5e1;border:1px solid #252536;border-radius:4px;font-size:12px;outline:none;margin-bottom:8px;flex-shrink:0';
-        picker.appendChild(search);
-
-        const list = document.createElement('div');
-        list.style.cssText = 'overflow-y:auto;flex:1;min-height:0';
-        picker.appendChild(list);
-
-        const renderList = (filter) => {
-          list.innerHTML = '';
-          const f = (filter || '').toLowerCase();
-          const filtered = models.filter(m => m.selector.toLowerCase().includes(f) || m.name.toLowerCase().includes(f) || m.provider.toLowerCase().includes(f));
-          let lastProvider = '';
-          for (const m of filtered) {
-            if (m.provider !== lastProvider) {
-              const hdr = document.createElement('div');
-              hdr.style.cssText = 'padding:4px 8px;font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;display:flex;align-items:center;gap:4px';
-              const dot = document.createElement('span');
-              dot.style.cssText = `display:inline-block;width:6px;height:6px;border-radius:50%;background:${loggedProviders.has(m.provider) ? '#34d399' : '#252536'}`;
-              hdr.appendChild(dot);
-              hdr.appendChild(document.createTextNode(m.provider));
-              list.appendChild(hdr);
-              lastProvider = m.provider;
-            }
-            const row = document.createElement('div');
-            row.style.cssText = 'padding:5px 8px 5px 16px;cursor:pointer;font-size:12px;color:#cbd5e1;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-            row.textContent = m.name;
-            row.title = m.selector + (m.contextWindow ? ' · ' + (m.contextWindow / 1000) + 'k ctx' : '');
-            if (m.selector === old) row.style.cssText += ';background:#0b0b1f';
-            row.addEventListener('mouseenter', () => { if (m.selector !== old) row.style.background = '#1a1829'; });
-            row.addEventListener('mouseleave', () => { if (m.selector !== old) row.style.background = ''; });
-            row.addEventListener('click', async () => {
-              await window.api.setModel(m.selector);
-              modelInfoEl.textContent = m.selector;
-              overlay.remove();
-            });
-            list.appendChild(row);
-          }
-
-          const sep = document.createElement('div');
-          sep.style.cssText = 'margin:6px 0;border-top:1px solid #2a2a3e';
-          list.appendChild(sep);
-
-          const loginRow = document.createElement('div');
-          loginRow.style.cssText = 'padding:5px 8px;cursor:pointer;font-size:12px;color:#a5b4fc;border-radius:3px';
-          loginRow.textContent = '+ Login to provider...';
-          loginRow.addEventListener('mouseenter', () => { loginRow.style.background = '#1a1829'; });
-          loginRow.addEventListener('mouseleave', () => { loginRow.style.background = ''; });
-          loginRow.addEventListener('click', () => {
-            overlay.remove();
-            switchSidebarTab('settings');
-          });
-          list.appendChild(loginRow);
-        };
-
-        search.addEventListener('input', () => renderList(search.value));
-        renderList('');
-
-        overlay.appendChild(picker);
-        document.body.appendChild(overlay);
-        search.focus();
+      modelInfoEl.addEventListener('click', () => {
+        openModelPicker({
+          currentValue: modelInfoEl.textContent,
+          onSelect: async (selector) => {
+            await window.api.setModel(selector);
+            modelInfoEl.textContent = selector;
+            const sm = document.getElementById('settings-model');
+            if (sm) sm.textContent = selector;
+          },
+        });
       });
     }
   })();
@@ -2565,6 +2593,12 @@ if (!promptEl || !responseEl) {
     return mentions;
   }
 
+  const VISION_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']);
+
+  function promptHasImageMention(text) {
+    return parseMentions(text || '').some(fp => VISION_IMAGE_EXTS.has((fp.split('.').pop() || '').toLowerCase()));
+  }
+
   function getCaretCoordinates(textarea, position) {
     const mirror = document.createElement('div');
     const cs = window.getComputedStyle(textarea, null);
@@ -2624,6 +2658,17 @@ if (!promptEl || !responseEl) {
 
       const mentions = parseMentions(text);
       mentionError.style.display = 'none';
+
+      // Block sending if an image is mentioned but the current model lacks vision.
+      if (promptHasImageMention(text)) {
+        const modelSelector = modelInfoEl ? modelInfoEl.textContent : '';
+        const supportsVision = await window.api.isVisionModel(modelSelector);
+        if (!supportsVision) {
+          appendError('The current model does not support image input. Switch to a vision-capable model (eye icon) to use images.');
+          scrollDown();
+          return;
+        }
+      }
 
       promptEl.value = '';
       promptEl.disabled = true;

@@ -17,6 +17,7 @@ let activeProc = null;
 let activeTimeoutTimer = null;
 let activeCancelFinalize = null;
 let currentModel = '';
+let modelsCache = [];
 let termProc = null;
 let fileSnapshots = {};
 let filePollInterval = null;
@@ -257,19 +258,15 @@ ipcMain.handle('model:set', (_event, model) => {
   return model;
 });
 
-ipcMain.handle('model:list', () => {
-  return new Promise((resolve) => {
-    execFile('omp', ['models', '--json'], { timeout: 15000 }, (err, stdout) => {
-      if (err) return resolve([]);
-      try {
-        const data = JSON.parse(stdout);
-        const models = data.models || [];
-        const keys = loadApiKeys();
-        const filtered = models.filter(m => keys[m.provider] !== '__forgotten__');
-        resolve(filtered);
-      } catch (_) { resolve([]); }
-    });
-  });
+ipcMain.handle('model:is-vision', async (_event, selector) => {
+  if (modelsCache.length === 0) await fetchModels();
+  return isVisionModel(selector);
+});
+
+ipcMain.handle('model:list', async () => {
+  const models = await fetchModels();
+  const keys = loadApiKeys();
+  return models.filter(m => keys[m.provider] !== '__forgotten__');
 });
 
 const API_KEYS_FILE = path.join(os.homedir(), '.omp', 'agent', 'api-keys.json');
@@ -285,6 +282,36 @@ function saveApiKey(provider, key) {
   const keys = loadApiKeys();
   keys[provider] = key;
   try { fs.writeFileSync(API_KEYS_FILE, JSON.stringify(keys, null, 2)); } catch (_) {}
+}
+
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']);
+
+function isImageFile(p) {
+  return IMAGE_EXTS.has(path.extname(p).slice(1).toLowerCase());
+}
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function fetchModels() {
+  return new Promise((resolve) => {
+    execFile('omp', ['models', '--json'], { timeout: 15000 }, (err, stdout) => {
+      if (err) return resolve([]);
+      try {
+        const data = JSON.parse(stdout);
+        const models = data.models || [];
+        modelsCache = models;
+        resolve(models);
+      } catch (_) { resolve([]); }
+    });
+  });
+}
+
+function isVisionModel(selector) {
+  if (!selector) return false;
+  const m = modelsCache.find(x => x.selector === selector);
+  return !!(m && Array.isArray(m.input) && m.input.includes('image'));
 }
 
 const PROVIDER_ENV = {
@@ -952,15 +979,21 @@ ipcMain.handle('llm:send', async (_event, payload) => {
     return;
   }
 
+  let imageArgs = [];
+  const resolvedTokens = [];
   if (mentionedFiles.length > 0) {
     let context = '';
     for (const m of mentionedFiles) {
       const filePath = typeof m === 'string' ? m : (m.path || m);
       const resolved = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
       try {
-        if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+        if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) continue;
+        const rel = path.relative(cwd, resolved);
+        resolvedTokens.push(filePath);
+        if (isImageFile(resolved)) {
+          imageArgs.push('@' + rel);
+        } else {
           const content = fs.readFileSync(resolved, 'utf8');
-          const rel = path.relative(cwd, resolved);
           const ext = path.extname(resolved).slice(1) || 'txt';
           if (content.length < 200000) {
             context += '\n--- ' + rel + ' ---\n```' + ext + '\n' + content + '\n```\n';
@@ -973,6 +1006,22 @@ ipcMain.handle('llm:send', async (_event, payload) => {
     if (context) {
       prompt = 'The following files have been mentioned for context:\n' + context + '\n---\n' + prompt;
     }
+    // Strip resolved @mention tokens from the prompt text so they don't leak as
+    // literal "@..." into omp (which treats leading-@ args as file references).
+    for (const tok of resolvedTokens) {
+      prompt = prompt.replace(new RegExp('@' + escapeRegExp(tok), 'g'), '');
+    }
+    prompt = prompt.replace(/[ \t]{2,}/g, ' ').replace(/^\s+|\s+$/g, '');
+  }
+
+  // Vision check: images require a vision-capable current model.
+  if (imageArgs.length > 0) {
+    if (modelsCache.length === 0) await fetchModels();
+    if (!isVisionModel(currentModel)) {
+      busy = false;
+      mainWindow.webContents.send('llm:error', 'The current model does not support image input. Switch to a vision-capable model (look for the eye icon) before attaching images.');
+      return;
+    }
   }
 
   fileSnapshots = snapshotTextFiles(cwd);
@@ -984,7 +1033,12 @@ ipcMain.handle('llm:send', async (_event, payload) => {
   if (currentModel) {
     args.push('--model', currentModel);
   }
-  args.push(prompt);
+  for (const img of imageArgs) {
+    args.push(img);
+  }
+  if (prompt) {
+    args.push(prompt);
+  }
 
   const env = { ...process.env };
   const keys = loadApiKeys();
@@ -997,8 +1051,7 @@ ipcMain.handle('llm:send', async (_event, payload) => {
     }
   }
 
-  const proc = spawn('omp', args, { cwd, env });
-  activeProc = proc;
+  let proc;
   let buf = '';
   let resolved = false;
   let responseTextBuf = '';
@@ -1006,13 +1059,26 @@ ipcMain.handle('llm:send', async (_event, payload) => {
   let thinkBlocks = [];
   let thinkActive = false;
   let lastChunkHR = process.hrtime.bigint();
+  let eventCounts = {};
+  let hadAssistantContent = false;
+  let retried = false;
+  const initialSessionId = activeSessionId;
 
-  const LLM_TIMEOUT = 300000;
+  const LLM_INACTIVITY_TIMEOUT = 5 * 60 * 1000; // reset on every chunk; kills only when truly idle
+  let timeoutTimer = null;
+  const armTimeout = () => {
+    if (timeoutTimer) clearTimeout(timeoutTimer);
+    timeoutTimer = setTimeout(() => {
+      proc.kill();
+      finalize('timeout', 'LLM request timed out (no activity for 5 minutes)');
+    }, LLM_INACTIVITY_TIMEOUT);
+    activeTimeoutTimer = timeoutTimer;
+  };
 
   function finalize(status, detail) {
     if (resolved) return;
     resolved = true;
-    clearTimeout(timeoutTimer);
+    if (timeoutTimer) clearTimeout(timeoutTimer);
     busy = false;
     activeProc = null;
     activeTimeoutTimer = null;
@@ -1022,6 +1088,7 @@ ipcMain.handle('llm:send', async (_event, payload) => {
     console.log('[chat room] thinking:', thinkingBuf);
     console.log('[chat room] response:', responseTextBuf);
     console.log('[chat room] status:', status, detail || '');
+    console.log('[chat room] events:', JSON.stringify(eventCounts));
 
     if (activeSessionId) {
       const userContent = [{ type: 'text', text: originalPrompt }];
@@ -1065,15 +1132,23 @@ ipcMain.handle('llm:send', async (_event, payload) => {
     }
   }
 
-  const timeoutTimer = setTimeout(() => {
-    proc.kill();
-    finalize('timeout', 'LLM request timed out after 5 minutes');
-  }, LLM_TIMEOUT);
+  function runOnce(runArgs) {
+    buf = '';
+    resolved = false;
+    responseTextBuf = '';
+    thinkingBuf = '';
+    thinkBlocks = [];
+    thinkActive = false;
+    hadAssistantContent = false;
+    lastChunkHR = process.hrtime.bigint();
+    eventCounts = {};
+    proc = spawn('omp', runArgs, { cwd, env });
+    activeProc = proc;
+    armTimeout();
+    activeCancelFinalize = finalize;
 
-  activeTimeoutTimer = timeoutTimer;
-  activeCancelFinalize = finalize;
-
-  proc.stdout.on('data', (data) => {
+    proc.stdout.on('data', (data) => {
+    armTimeout();
     const now = process.hrtime.bigint();
     const deltaMs = Number(now - lastChunkHR) / 1e6;
     lastChunkHR = now;
@@ -1085,6 +1160,8 @@ ipcMain.handle('llm:send', async (_event, payload) => {
       if (!line.trim()) continue;
       try {
         const ev = JSON.parse(line);
+        const ek = ev.type + (ev.assistantMessageEvent ? ':' + ev.assistantMessageEvent.type : '');
+        eventCounts[ek] = (eventCounts[ek] || 0) + 1;
         if (ev.type === 'session' && ev.id && !activeSessionId) {
           activeSessionId = ev.id;
           sessionJustCreated = true;
@@ -1123,7 +1200,7 @@ ipcMain.handle('llm:send', async (_event, payload) => {
               }
             } else if (inner.type === 'text_delta' && inner.delta) {
               const t = typeof inner.delta === 'string' ? inner.delta : inner.delta.text || '';
-              if (t) { responseTextBuf += t; mainWindow.webContents.send('llm:text', t); }
+              if (t) { responseTextBuf += t; hadAssistantContent = true; mainWindow.webContents.send('llm:text', t); }
             } else if (inner.type === 'content_block_delta' && inner.delta && typeof inner.delta === 'object') {
               if (inner.delta.type === 'thinking_delta' && inner.delta.thinking) {
                 thinkingBuf += inner.delta.thinking;
@@ -1135,6 +1212,7 @@ ipcMain.handle('llm:send', async (_event, payload) => {
                 mainWindow.webContents.send('llm:thinking', inner.delta.thinking);
               } else if (inner.delta.type === 'text_delta' && inner.delta.text) {
                 responseTextBuf += inner.delta.text;
+                hadAssistantContent = true;
                 mainWindow.webContents.send('llm:text', inner.delta.text);
               }
             }
@@ -1149,6 +1227,15 @@ ipcMain.handle('llm:send', async (_event, payload) => {
             }
           }
         }
+        if (ev.type === 'tool_execution_start') {
+          const tn = ev.toolName || ev.tool;
+          const fp = ev.args && (ev.args.path || ev.args.filePath || ev.args.file);
+          if (tn && fp && typeof fp === 'string' && (tn === 'write' || tn === 'edit' || tn === 'write_to_file' || tn === 'replace_in_file')) {
+            hadAssistantContent = true;
+            const resolved = path.isAbsolute(fp) ? fp : path.join(cwd, fp);
+            mainWindow.webContents.send('llm:file-write', resolved);
+          }
+        }
         if (ev.message && ev.message.usage) {
           mainWindow.webContents.send('llm:usage', ev.message.usage);
         }
@@ -1159,19 +1246,40 @@ ipcMain.handle('llm:send', async (_event, payload) => {
     }
   });
 
-  proc.stderr.on('data', (data) => {
-    const s = data.toString();
-    responseTextBuf += s;
-    mainWindow.webContents.send('llm:chunk', s);
-  });
+    proc.stderr.on('data', (data) => {
+      armTimeout();
+      const s = data.toString();
+      responseTextBuf += s;
+      mainWindow.webContents.send('llm:chunk', s);
+    });
 
-  proc.on('close', (code) => {
-    finalize('done', code);
-  });
+    proc.on('close', (code) => {
+      console.log('[chat room] close:', { code, hadAssistantContent, retried, imageArgsLen: imageArgs.length, sessionId: activeSessionId });
+      if (!retried && !hadAssistantContent && imageArgs.length > 0 && activeSessionId) {
+        retried = true;
+        const nudgeArgs = ['-p', '--mode', 'json', '--resume', activeSessionId];
+        if (currentModel) nudgeArgs.push('--model', currentModel);
+        nudgeArgs.push('give me the response~');
+        console.log('[chat room] image prompt — auto-sending nudge:', JSON.stringify(nudgeArgs));
+        runOnce(nudgeArgs);
+        return;
+      }
+      if (!retried && !hadAssistantContent && code === 0) {
+        retried = true;
+        activeSessionId = initialSessionId;
+        console.log('[chat room] empty turn — auto-retrying');
+        runOnce(args);
+        return;
+      }
+      finalize('done', code);
+    });
 
-  proc.on('error', (err) => {
-    finalize('error', err.code === 'ENOENT' ? 'omp command not found. Is it installed?' : err.message);
-  });
+    proc.on('error', (err) => {
+      finalize('error', err.code === 'ENOENT' ? 'omp command not found. Is it installed?' : err.message);
+    });
+  }
+
+  runOnce(args);
 });
 
 ipcMain.handle('llm:cancel', () => {
