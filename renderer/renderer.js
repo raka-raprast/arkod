@@ -2885,6 +2885,13 @@ const gitDiffCloseBtn = document.getElementById('git-diff-close-btn');
 const gitMergeBanner = document.getElementById('git-merge-banner');
 const gitMergeBannerText = document.getElementById('git-merge-banner-text');
 const gitMergeAbortBtn = document.getElementById('git-merge-abort-btn');
+const gitConflictPanel = document.getElementById('git-conflict-panel');
+const gitConflictLabel = document.getElementById('git-conflict-label');
+const gitConflictContent = document.getElementById('git-conflict-content');
+const gitConflictAcceptAllOurs = document.getElementById('git-conflict-accept-all-ours');
+const gitConflictAcceptAllTheirs = document.getElementById('git-conflict-accept-all-theirs');
+const gitConflictStageBtn = document.getElementById('git-conflict-stage-btn');
+const gitConflictCloseBtn = document.getElementById('git-conflict-close-btn');
 const sashGitSidebar = document.getElementById('sash-git-sidebar');
 
 if (sashGitSidebar) {
@@ -2915,6 +2922,10 @@ if (gitRefreshBtn) gitRefreshBtn.addEventListener('click', refreshGitUI);
 
 if (gitDiffCloseBtn) gitDiffCloseBtn.addEventListener('click', () => {
   gitDiffPanel.style.display = 'none';
+});
+
+if (gitConflictCloseBtn) gitConflictCloseBtn.addEventListener('click', () => {
+  gitConflictPanel.style.display = 'none';
 });
 
 if (gitMergeAbortBtn) gitMergeAbortBtn.addEventListener('click', async () => {
@@ -3047,7 +3058,7 @@ async function handleGitOpResult(r, opLabel, btn) {
     if (btn) flashGitBtn(btn, 'error');
     await refreshGitUI();
     const n = (r.files && r.files.length) || 0;
-    alert(opLabel + ' produced ' + n + ' conflict' + (n === 1 ? '' : 's') + '.\nResolve them using the "Resolve" button next to each conflicted file.');
+    alert(opLabel + ' produced ' + n + ' conflict' + (n === 1 ? '' : 's') + '.\nClick "Resolve" next to each conflicted file to pick Current or Incoming.');
     return true;
   }
   if (r.error) {
@@ -3408,10 +3419,10 @@ function gitFileRow(file, isStaged) {
     const resolveBtn = document.createElement('button');
     resolveBtn.className = 'git-file-resolve-btn';
     resolveBtn.textContent = 'Resolve';
-    resolveBtn.title = 'Open file to resolve conflicts';
+    resolveBtn.title = 'Open conflict resolver to pick Current / Incoming';
     resolveBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      await openFileInEditor(file.path);
+      await showConflictResolver(file.path);
     });
     actions.appendChild(resolveBtn);
   }
@@ -3500,7 +3511,275 @@ async function showGitFileDiff(filePath, staged) {
     gitDiffContent.textContent = 'No changes to show.';
   }
   gitDiffPanel.style.display = '';
+  gitConflictPanel.style.display = 'none';
 }
+
+// --- Conflict resolver ---
+
+let conflictState = null;
+
+function parseConflictMarkers(content) {
+  const lines = content.split('\n');
+  const segments = [];
+  let contextLines = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith('<<<<<<<')) {
+      if (contextLines.length > 0) {
+        segments.push({ type: 'context', lines: contextLines.slice() });
+        contextLines = [];
+      }
+      const ours = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith('=======')) { ours.push(lines[i]); i++; }
+      const theirs = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith('>>>>>>>')) { theirs.push(lines[i]); i++; }
+      segments.push({ type: 'conflict', ours, theirs, resolution: null });
+    } else {
+      contextLines.push(lines[i]);
+    }
+  }
+  if (contextLines.length > 0) {
+    segments.push({ type: 'context', lines: contextLines });
+  }
+  return segments;
+}
+
+function buildResolvedContent(segments) {
+  const out = [];
+  for (const seg of segments) {
+    if (seg.type === 'context') {
+      out.push(...seg.lines);
+    } else {
+      if (seg.resolution === 'theirs') out.push(...seg.theirs);
+      else if (seg.resolution === 'both') { out.push(...seg.ours); out.push(...seg.theirs); }
+      else out.push(...seg.ours);
+    }
+  }
+  return out.join('\n');
+}
+
+function countUnresolved(segments) {
+  return segments.filter(s => s.type === 'conflict' && !s.resolution).length;
+}
+
+function renderConflictSide(label, lines, side) {
+  const wrap = document.createElement('div');
+  wrap.className = 'conflict-side conflict-side-' + side;
+  const lbl = document.createElement('div');
+  lbl.className = 'conflict-side-label';
+  lbl.textContent = label;
+  const pre = document.createElement('pre');
+  pre.textContent = lines.length > 0 ? lines.join('\n') : '(empty)';
+  wrap.appendChild(lbl);
+  wrap.appendChild(pre);
+  return wrap;
+}
+
+function renderConflictHunk(seg, idx) {
+  const hunk = document.createElement('div');
+  hunk.className = 'conflict-hunk';
+  hunk.dataset.idx = String(idx);
+
+  const toolbar = document.createElement('div');
+  toolbar.className = 'conflict-hunk-toolbar';
+
+  const info = document.createElement('span');
+  info.className = 'conflict-hunk-info';
+  info.textContent = 'Conflict ' + (idx + 1);
+  toolbar.appendChild(info);
+
+  const btns = document.createElement('div');
+  btns.className = 'conflict-hunk-btns';
+
+  const mkBtn = (label, resolution, title) => {
+    const b = document.createElement('button');
+    b.className = 'conflict-hunk-btn';
+    b.textContent = label;
+    b.title = title || '';
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      resolveHunk(idx, resolution);
+    });
+    return b;
+  };
+
+  btns.appendChild(mkBtn('Current', 'ours', 'Accept Current (HEAD)'));
+  btns.appendChild(mkBtn('Incoming', 'theirs', 'Accept Incoming'));
+  btns.appendChild(mkBtn('Both', 'both', 'Keep both versions'));
+  toolbar.appendChild(btns);
+  hunk.appendChild(toolbar);
+
+  hunk.appendChild(renderConflictSide('Current (HEAD)', seg.ours, 'ours'));
+  hunk.appendChild(renderConflictSide('Incoming', seg.theirs, 'theirs'));
+
+  return hunk;
+}
+
+function resolveHunk(idx, resolution) {
+  if (!conflictState) return;
+  const seg = conflictState.segments[idx];
+  if (!seg || seg.type !== 'conflict') return;
+
+  if (seg.resolution === resolution) {
+    seg.resolution = null;
+  } else {
+    seg.resolution = resolution;
+  }
+  refreshConflictView();
+}
+
+function refreshConflictView() {
+  if (!conflictState) return;
+  const hunks = gitConflictContent.querySelectorAll('.conflict-hunk');
+  for (const hunk of hunks) {
+    const idx = parseInt(hunk.dataset.idx);
+    const seg = conflictState.segments[idx];
+    if (!seg || seg.type !== 'conflict') continue;
+    if (seg.resolution) {
+      hunk.classList.add('resolved');
+      const ours = hunk.querySelector('.conflict-side-ours');
+      const theirs = hunk.querySelector('.conflict-side-theirs');
+      ours.classList.toggle('chosen', seg.resolution === 'ours' || seg.resolution === 'both');
+      theirs.classList.toggle('chosen', seg.resolution === 'theirs' || seg.resolution === 'both');
+      const btns = hunk.querySelector('.conflict-hunk-btns');
+      btns.innerHTML = '';
+      const info = hunk.querySelector('.conflict-hunk-info');
+      const label = seg.resolution === 'ours' ? 'Current' : seg.resolution === 'theirs' ? 'Incoming' : 'Both';
+      info.textContent = 'Conflict ' + (idx + 1) + ' → ' + label;
+      const undo = document.createElement('button');
+      undo.className = 'conflict-hunk-btn undo';
+      undo.textContent = 'undo';
+      undo.addEventListener('click', (e) => { e.stopPropagation(); resolveHunk(idx, seg.resolution); });
+      btns.appendChild(undo);
+    } else {
+      hunk.classList.remove('resolved');
+      const info = hunk.querySelector('.conflict-hunk-info');
+      info.textContent = 'Conflict ' + (idx + 1);
+      const btns = hunk.querySelector('.conflict-hunk-btns');
+      btns.innerHTML = '';
+      const mkBtn = (label, res, title) => {
+        const b = document.createElement('button');
+        b.className = 'conflict-hunk-btn';
+        b.textContent = label;
+        b.title = title || '';
+        b.addEventListener('click', (e) => { e.stopPropagation(); resolveHunk(idx, res); });
+        return b;
+      };
+      btns.appendChild(mkBtn('Current', 'ours', 'Accept Current (HEAD)'));
+      btns.appendChild(mkBtn('Incoming', 'theirs', 'Accept Incoming'));
+      btns.appendChild(mkBtn('Both', 'both', 'Keep both versions'));
+      const ours = hunk.querySelector('.conflict-side-ours');
+      const theirs = hunk.querySelector('.conflict-side-theirs');
+      ours.classList.remove('chosen');
+      theirs.classList.remove('chosen');
+    }
+  }
+
+  const unresolved = countUnresolved(conflictState.segments);
+  if (gitConflictStageBtn) gitConflictStageBtn.disabled = unresolved > 0;
+}
+
+async function showConflictResolver(filePath) {
+  const content = await window.api.readFile(filePath);
+  if (content == null) {
+    alert('Could not read file: ' + filePath);
+    return;
+  }
+
+  const segments = parseConflictMarkers(content);
+  const conflicts = segments.filter(s => s.type === 'conflict');
+
+  if (conflicts.length === 0) {
+    alert('No conflict markers found in this file.\nIt may have already been resolved. Stage it to mark as resolved.');
+    return;
+  }
+
+  conflictState = { filePath, segments };
+
+  gitConflictLabel.textContent = filePath + '  (' + conflicts.length + ' conflict' + (conflicts.length > 1 ? 's' : '') + ')';
+
+  gitConflictContent.innerHTML = '';
+  let conflictIdx = 0;
+  for (const seg of segments) {
+    if (seg.type === 'context') {
+      const ctx = document.createElement('div');
+      ctx.className = 'conflict-context';
+      const preview = seg.lines.slice(0, 5);
+      ctx.textContent = preview.join('\n') + (seg.lines.length > 5 ? '\n…' : '');
+      gitConflictContent.appendChild(ctx);
+    } else {
+      gitConflictContent.appendChild(renderConflictHunk(seg, conflictIdx));
+      conflictIdx++;
+    }
+  }
+
+  gitDiffPanel.style.display = 'none';
+  gitConflictPanel.style.display = '';
+  if (gitConflictStageBtn) gitConflictStageBtn.disabled = true;
+}
+
+if (gitConflictAcceptAllOurs) gitConflictAcceptAllOurs.addEventListener('click', () => {
+  if (!conflictState) return;
+  for (const seg of conflictState.segments) {
+    if (seg.type === 'conflict') seg.resolution = 'ours';
+  }
+  refreshConflictView();
+});
+
+if (gitConflictAcceptAllTheirs) gitConflictAcceptAllTheirs.addEventListener('click', () => {
+  if (!conflictState) return;
+  for (const seg of conflictState.segments) {
+    if (seg.type === 'conflict') seg.resolution = 'theirs';
+  }
+  refreshConflictView();
+});
+
+if (gitConflictStageBtn) gitConflictStageBtn.addEventListener('click', async () => {
+  if (!conflictState) return;
+  if (countUnresolved(conflictState.segments) > 0) return;
+
+  gitConflictStageBtn.disabled = true;
+  gitConflictStageBtn.textContent = 'Staging…';
+
+  const resolved = buildResolvedContent(conflictState.segments);
+  const filePath = conflictState.filePath;
+
+  const wr = await window.api.writeFile(filePath, resolved);
+  if (wr && wr.error) {
+    alert('Failed to write resolved file: ' + wr.error);
+    gitConflictStageBtn.disabled = false;
+    gitConflictStageBtn.textContent = 'Stage & Finish';
+    return;
+  }
+
+  const sr = await window.api.gitStage(filePath);
+  if (sr && sr.error) {
+    alert('Failed to stage file: ' + sr.error);
+    gitConflictStageBtn.disabled = false;
+    gitConflictStageBtn.textContent = 'Stage & Finish';
+    return;
+  }
+
+  gitConflictPanel.style.display = 'none';
+  conflictState = null;
+  gitConflictStageBtn.textContent = 'Stage & Finish';
+
+  await refreshGitUI();
+
+  const status = await window.api.gitStatus();
+  const remaining = (status.files || []).filter(f => f.conflict);
+  if (remaining.length === 0) {
+    const ok = await showConfirm('All conflicts resolved. Continue the merge/rebase now?');
+    if (ok) {
+      const cr = await window.api.gitConflictContinue();
+      if (cr.error) {
+        alert('Continue failed: ' + cr.error + '\n\nYou may need to finish manually in the terminal.');
+      }
+      await refreshGitUI();
+    }
+  }
+});
 
 async function checkDirtyGuard(action, targetBranch) {
   try {

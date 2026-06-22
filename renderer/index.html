@@ -160,6 +160,18 @@
               </div>
               <div id="git-diff-content" class="diff-container"></div>
             </div>
+            <div id="git-conflict-panel" style="display:none">
+              <div id="git-conflict-header">
+                <span id="git-conflict-label"></span>
+                <div class="git-conflict-actions">
+                  <button id="git-conflict-accept-all-ours" class="git-conflict-bulk-btn" title="Accept all Current (HEAD) versions">All Current</button>
+                  <button id="git-conflict-accept-all-theirs" class="git-conflict-bulk-btn" title="Accept all Incoming versions">All Incoming</button>
+                  <button id="git-conflict-stage-btn" class="git-conflict-finish-btn" disabled>Stage &amp; Finish</button>
+                  <button id="git-conflict-close-btn" title="Close">×</button>
+                </div>
+              </div>
+              <div id="git-conflict-content"></div>
+            </div>
           </div>
         </div>
         <div id="view-startup" class="main-view">

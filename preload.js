@@ -113,4 +113,5 @@ contextBridge.exposeInMainWorld('api', {
   gitDiscardAll: () => ipcRenderer.invoke('git:discard-all'),
   gitCommitGen: () => ipcRenderer.invoke('git:commit-gen'),
   gitMergeAbort: () => ipcRenderer.invoke('git:merge-abort'),
+  gitConflictContinue: () => ipcRenderer.invoke('git:conflict-continue'),
 });

@@ -60,12 +60,14 @@
 ## 7. Git Merge Conflict Resolver
 
 - [x] Detect conflicted files in git status (`UU` codes) + distinct styling in file list
-- [x] ~~`git:resolve-read`/`resolve-apply`/`resolve-mark` IPC handlers~~ (dropped — resolution happens in the file editor)
-- [x] Open conflicted files in the existing file editor to resolve markers directly
-- [x] Stage file (`git add`) marks conflict resolved via the existing stage button
+- [x] ~~`git:resolve-read`/`resolve-apply`/`resolve-mark` IPC handlers~~ (replaced by in-renderer conflict marker parsing)
+- [x] Conflict resolver panel with per-hunk Accept Current / Incoming / Both buttons
+- [x] Bulk "All Current" / "All Incoming" resolve buttons
+- [x] Stage & Finish: writes resolved file, runs `git add`, offers to continue merge/rebase
 - [x] Add `git:merge-abort` IPC (`git merge --abort` or `git rebase --abort`)
+- [x] Add `git:conflict-continue` IPC (`git rebase --continue` or `git commit --no-edit`)
 - [x] Merge-in-progress banner in git branch bar + conflict count progress
-- [x] Preload bridge: `gitMergeAbort`
+- [x] Preload bridge: `gitMergeAbort`, `gitConflictContinue`
 
 ---
 

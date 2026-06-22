@@ -590,6 +590,7 @@ ipcMain.handle('lsp:all-diagnostics', async () => {
 
 ipcMain.handle('file:read', async (_event, filePath) => {
   try {
+    var x = 10;
     return fs.readFileSync(filePath, 'utf8');
   } catch (err) {
     if (err && err.code === 'ENOENT') return '';
@@ -1823,21 +1824,53 @@ ipcMain.handle('git:delete-branch', async (_event, branchName) => {
   }
 });
 
-// --- Merge conflict detection + abort (resolution happens in the file editor) ---
+// --- Merge conflict detection + abort + continue ---
+
+ipcMain.handle('git:conflict-continue', async () => {
+  try {
+    const gitDir = path.join(cwd, '.git');
+    const isRebase = fs.existsSync(path.join(gitDir, 'rebase-merge')) || fs.existsSync(path.join(gitDir, 'rebase-apply'));
+    const isMerge = fs.existsSync(path.join(gitDir, 'MERGE_HEAD'));
+    if (isRebase) {
+      const result = await execGit(['rebase', '--continue'], 30000);
+      return { success: true, result, mode: 'rebase' };
+    } else if (isMerge) {
+      const result = await execGit(['commit', '--no-edit'], 30000);
+      return { success: true, result, mode: 'merge' };
+    } else {
+      return { error: 'No merge or rebase in progress.' };
+    }
+  } catch (err) {
+    return { error: err.message };
+  }
+});
 
 ipcMain.handle('git:merge-abort', async () => {
   try {
     const gitDir = path.join(cwd, '.git');
     const isMerge = fs.existsSync(path.join(gitDir, 'MERGE_HEAD'));
     const isRebase = fs.existsSync(path.join(gitDir, 'rebase-merge')) || fs.existsSync(path.join(gitDir, 'rebase-apply'));
-    if (isRebase) {
-      await execGit(['rebase', '--abort'], 30000);
-    } else if (isMerge) {
-      await execGit(['merge', '--abort'], 30000);
-    } else {
-      // Fallback: try both
-      try { await execGit(['merge', '--abort'], 30000); }
-      catch (_) { await execGit(['rebase', '--abort'], 30000); }
+    const tryAbort = async () => {
+      if (isRebase) {
+        await execGit(['rebase', '--abort'], 30000);
+      } else if (isMerge) {
+        await execGit(['merge', '--abort'], 30000);
+      } else {
+        try { await execGit(['merge', '--abort'], 30000); }
+        catch (_) { await execGit(['rebase', '--abort'], 30000); }
+      }
+    };
+    try {
+      await tryAbort();
+    } catch (firstErr) {
+      if (/not uptodate|cannot be|could not reset/i.test(firstErr.message)) {
+        await execGit(['reset', '--hard'], 30000);
+        if (isRebase) {
+          try { await execGit(['rebase', '--abort'], 30000); } catch (_) {}
+        }
+      } else {
+        throw firstErr;
+      }
     }
     return { success: true };
   } catch (err) {
