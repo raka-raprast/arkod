@@ -51,6 +51,7 @@
     "lsp/**/*",
     "dap/**/*",
     "db/**/*",
+    "http/**/*",
     "node_modules/**/*"
     ],
     "extraResources": []

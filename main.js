@@ -7,6 +7,7 @@ const LspManager = require('./lsp/manager');
 const DebugManager = require('./dap/manager');
 const { unifiedDiff } = require('./diff');
 const dbManager = require('./db');
+const httpManager = require('./http');
 
 try { require('electron-reload')(__dirname); } catch (_) {}
 
@@ -206,6 +207,7 @@ app.whenReady().then(() => {
   createWindow();
   startFileWatcher(cwd);
   initDbConnections();
+  initHttpCollections();
 });
 
 app.on('window-all-closed', () => {
@@ -551,6 +553,7 @@ ipcMain.handle('cwd:set', async (_event, dir) => {
     startFileWatcher(cwd);
     await debugManager.stop();
     await reloadDbForCwd();
+    reloadHttpForCwd();
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('cwd:changed', cwd);
     }
@@ -572,6 +575,7 @@ ipcMain.handle('cwd:pick', async () => {
     startFileWatcher(cwd);
     await debugManager.stop();
     await reloadDbForCwd();
+    reloadHttpForCwd();
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('cwd:changed', cwd);
     }
@@ -2398,6 +2402,139 @@ ipcMain.handle('db:pick-sqlite-file', async () => {
   });
   if (result.canceled || !result.filePaths.length) return { ok: false };
   return { ok: true, filePath: result.filePaths[0] };
+});
+
+/* ===== HTTP client (Postman-like, HTTPS only) ===== */
+const HTTP_GLOBAL_FILE = path.join(os.homedir(), '.omp', 'agent', 'arkod-http.json');
+
+function httpProjectFilePath(projectDir) {
+  return path.join(projectDir || cwd || '', '.arkod-http.json');
+}
+
+function readHttpJson(filePath) {
+  try {
+    if (filePath && fs.existsSync(filePath)) {
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      if (data && Array.isArray(data.collections)) return data.collections;
+    }
+  } catch (_) {}
+  return [];
+}
+
+function writeHttpJson(filePath, list) {
+  try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify({ collections: list }, null, 2));
+  } catch (_) {}
+}
+
+function persistHttpCollections() {
+  const all = httpManager.allCollections();
+  writeHttpJson(HTTP_GLOBAL_FILE, all.filter((c) => c.scope !== 'project'));
+  if (cwd) writeHttpJson(httpProjectFilePath(), all.filter((c) => c.scope === 'project'));
+}
+
+function registerHttpList(list, scope) {
+  list.forEach((c) => {
+    if (!c.id) return;
+    httpManager.setCollection(c.id, { ...c, scope });
+  });
+}
+
+function initHttpCollections() {
+  registerHttpList(readHttpJson(HTTP_GLOBAL_FILE), 'global');
+  if (cwd) registerHttpList(readHttpJson(httpProjectFilePath()), 'project');
+}
+
+function reloadHttpForCwd() {
+  const projectIds = httpManager.allCollections()
+    .filter((c) => c.scope === 'project')
+    .map((c) => c.id);
+  projectIds.forEach((id) => httpManager.remove(id));
+  if (cwd) registerHttpList(readHttpJson(httpProjectFilePath()), 'project');
+}
+
+ipcMain.handle('http:list-collections', () => httpManager.allCollections());
+
+ipcMain.handle('http:add-collection', (_e, data) => {
+  const cfg = data || {};
+  const scope = cfg.scope === 'project' ? 'project' : 'global';
+  if (scope === 'project' && !cwd) {
+    return { ok: false, error: 'Open a project folder before adding a project-scoped collection' };
+  }
+  const name = (cfg.name && String(cfg.name).trim()) || 'Untitled Collection';
+  const id = httpManager.register({ name, scope, requests: [] });
+  persistHttpCollections();
+  return { ok: true, collection: httpManager.getCollection(id) };
+});
+
+ipcMain.handle('http:rename-collection', (_e, id, name) => {
+  if (!httpManager.getCollection(id)) return { ok: false, error: 'Collection not found' };
+  httpManager.rename(id, (name && String(name).trim()) || 'Untitled');
+  persistHttpCollections();
+  return { ok: true };
+});
+
+ipcMain.handle('http:remove-collection', (_e, id) => {
+  httpManager.remove(id);
+  persistHttpCollections();
+  return { ok: true };
+});
+
+ipcMain.handle('http:add-request', (_e, collectionId, req) => {
+  try {
+    const r = httpManager.addRequest(collectionId, req || {});
+    persistHttpCollections();
+    return { ok: true, request: r };
+  } catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('http:update-request', (_e, collectionId, req) => {
+  try {
+    const r = httpManager.updateRequest(collectionId, req);
+    persistHttpCollections();
+    return { ok: true, request: r };
+  } catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('http:remove-request', (_e, collectionId, reqId) => {
+  httpManager.removeRequest(collectionId, reqId);
+  persistHttpCollections();
+  return { ok: true };
+});
+
+ipcMain.handle('http:execute', async (_e, request) => {
+  try { return await httpManager.execute(request); }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('http:import-postman-json', (_e, jsonString, scope) => {
+  try {
+    const parsed = httpManager.parsePostman(JSON.parse(jsonString));
+    const sc = scope === 'project' && cwd ? 'project' : 'global';
+    const coll = httpManager.importCollection(parsed, sc);
+    persistHttpCollections();
+    return { ok: true, collection: coll };
+  } catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('http:import-postman-file', async (_e, scope) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    title: 'Import a Postman collection',
+    defaultPath: cwd,
+    filters: [{ name: 'Postman collection', extensions: ['json'] }],
+  });
+  if (result.canceled || !result.filePaths.length) return { ok: false };
+  try {
+    const text = fs.readFileSync(result.filePaths[0], 'utf8');
+    const parsed = httpManager.parsePostman(JSON.parse(text));
+    const sc = scope === 'project' && cwd ? 'project' : 'global';
+    const coll = httpManager.importCollection(parsed, sc);
+    persistHttpCollections();
+    return { ok: true, collection: coll };
+  } catch (err) { return { ok: false, error: err.message }; }
 });
 
 ipcMain.handle('term:create', () => {

@@ -15,6 +15,7 @@
       <button class="activity-tab" data-tab="git" data-tip="Git">⎇</button>
       <button class="activity-tab" data-tab="run" data-tip="Run & Debug">▶</button>
       <button class="activity-tab" data-tab="database" data-tip="Database">🗄</button>
+      <button class="activity-tab" data-tab="http" data-tip="API Client">⇄</button>
       <div class="activity-spacer"></div>
       <button id="theme-toggle-btn" class="activity-tab" data-tip="Toggle Light/Dark Theme">🌓</button>
       <button class="activity-tab" data-tab="settings" data-tip="Settings">⚙</button>
@@ -80,6 +81,23 @@
         <div id="db-schema-section">
           <div class="db-sidebar-header">Schema</div>
           <div id="db-schema-tree"></div>
+        </div>
+      </div>
+      <div id="sidebar-http" class="sidebar-panel">
+        <div id="http-collections-section">
+          <div id="sidebar-header">
+            <span>API</span>
+            <div id="http-header-actions">
+              <button id="http-import-btn" title="Import Postman collection…">⇩</button>
+              <button id="http-new-collection-btn" class="db-new-btn" title="Add collection…">+</button>
+            </div>
+          </div>
+          <div id="http-collection-tree"></div>
+        </div>
+        <div class="sash sash-horizontal" id="sash-http-sidebar"></div>
+        <div id="http-history-section">
+          <div class="db-sidebar-header">History</div>
+          <div id="http-history-list"></div>
         </div>
       </div>
       <div id="sidebar-run" class="sidebar-panel">
@@ -249,6 +267,109 @@
             </div>
           </div>
         </div>
+        <div id="view-http" class="main-view">
+          <div id="http-empty" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px">
+            <span style="font-size:48px;opacity:0.3">⇄</span>
+            <p style="color:#94a3b8;font-size:13px;margin:0">No request selected.</p>
+            <p style="color:#64748b;font-size:11px;margin:0">Add a collection, add a request, or import a Postman collection from the sidebar.</p>
+          </div>
+          <div id="http-workspace" style="display:none;flex:1;flex-direction:column;overflow:hidden">
+            <div id="http-request-bar">
+              <input id="http-req-name" type="text" placeholder="Request name" />
+              <select id="http-method">
+                <option>GET</option>
+                <option>POST</option>
+                <option>PUT</option>
+                <option>PATCH</option>
+                <option>DELETE</option>
+                <option>HEAD</option>
+                <option>OPTIONS</option>
+              </select>
+              <input id="http-url" type="text" placeholder="https://api.example.com/resource" />
+              <button id="http-send-btn" class="db-run-btn">▶ Send</button>
+              <button id="http-save-btn" class="git-action-btn">Save</button>
+            </div>
+            <div id="http-tabs">
+              <button class="http-tab active" data-htab="params">Params<span class="http-tab-badge" id="http-params-count"></span></button>
+              <button class="http-tab" data-htab="headers">Headers<span class="http-tab-badge" id="http-headers-count"></span></button>
+              <button class="http-tab" data-htab="body">Body</button>
+              <button class="http-tab" data-htab="auth">Auth</button>
+            </div>
+            <div id="http-tab-params" class="http-tab-panel">
+              <div class="http-kv-toolbar"><span class="http-kv-title">Query Parameters</span><button class="http-kv-add" data-kv-list="http-params-list">+ Add</button></div>
+              <div class="http-kv-list" id="http-params-list"></div>
+            </div>
+            <div id="http-tab-headers" class="http-tab-panel" style="display:none">
+              <div class="http-kv-toolbar"><span class="http-kv-title">Headers</span><button class="http-kv-add" data-kv-list="http-headers-list">+ Add</button></div>
+              <div class="http-kv-list" id="http-headers-list"></div>
+            </div>
+            <div id="http-tab-body" class="http-tab-panel" style="display:none">
+              <div class="http-body-toolbar">
+                <select id="http-body-mode">
+                  <option value="none">none</option>
+                  <option value="raw">raw (text)</option>
+                  <option value="json">JSON</option>
+                  <option value="urlencoded">x-www-form-urlencoded</option>
+                  <option value="formdata">multipart form-data</option>
+                </select>
+              </div>
+              <textarea id="http-body-raw" class="http-body-textarea" placeholder="Request body…"></textarea>
+              <div id="http-body-kv" class="http-body-kv-wrap" style="display:none">
+                <div class="http-kv-toolbar"><button class="http-kv-add" data-kv-list="http-body-kv-list">+ Add</button></div>
+                <div class="http-kv-list" id="http-body-kv-list"></div>
+              </div>
+            </div>
+            <div id="http-tab-auth" class="http-tab-panel" style="display:none">
+              <div class="http-auth-row">
+                <label class="db-field-label">Type</label>
+                <select id="http-auth-type" class="db-form-input">
+                  <option value="none">No Auth</option>
+                  <option value="basic">Basic Auth</option>
+                  <option value="bearer">Bearer Token</option>
+                  <option value="apikey">API Key</option>
+                </select>
+              </div>
+              <div id="http-auth-basic" class="http-auth-fields" style="display:none">
+                <label class="db-field-label">Username</label>
+                <input id="http-auth-user" type="text" class="db-form-input" />
+                <label class="db-field-label">Password</label>
+                <input id="http-auth-pass" type="password" class="db-form-input" />
+              </div>
+              <div id="http-auth-bearer" class="http-auth-fields" style="display:none">
+                <label class="db-field-label">Token</label>
+                <input id="http-auth-token" type="text" class="db-form-input" />
+              </div>
+              <div id="http-auth-apikey" class="http-auth-fields" style="display:none">
+                <label class="db-field-label">Key</label>
+                <input id="http-auth-apikey-key" type="text" class="db-form-input" placeholder="X-API-Key" />
+                <label class="db-field-label">Value</label>
+                <input id="http-auth-apikey-value" type="text" class="db-form-input" placeholder="your-api-key" />
+                <label class="db-field-label">Add to</label>
+                <select id="http-auth-apikey-addto" class="db-form-input">
+                  <option value="header">Header</option>
+                  <option value="query">Query Params</option>
+                </select>
+              </div>
+            </div>
+            <div class="sash sash-horizontal" id="sash-http-response"></div>
+            <div id="http-response-panel">
+              <div id="http-response-meta">
+                <span id="http-response-status" class="http-status-pill"></span>
+                <span id="http-response-time"></span>
+                <span id="http-response-size"></span>
+                <span style="flex:1"></span>
+                <button id="http-resp-save-btn" class="git-action-btn" disabled>⇩ Save</button>
+                <button id="http-resp-pretty-btn" class="git-action-btn">Pretty</button>
+                <div id="http-response-tabs">
+                  <button class="http-resp-tab active" data-rtab="body">Body</button>
+                  <button class="http-resp-tab" data-rtab="headers">Headers</button>
+                </div>
+              </div>
+              <div id="http-response-body" class="http-response-body"></div>
+              <div id="http-response-headers" class="http-response-headers" style="display:none"></div>
+            </div>
+          </div>
+        </div>
         <div id="view-run" class="main-view">
           <div id="debug-toolbar">
             <select id="config-select" title="Launch configuration (from .vscode/launch.json)"></select>
@@ -386,6 +507,17 @@
     </div>
   </div>
 
+  <div id="prompt-overlay" class="confirm-hidden">
+    <div class="confirm-box">
+      <div class="confirm-message" id="prompt-message"></div>
+      <input id="prompt-input" type="text" class="db-form-input" style="margin-bottom:16px;width:100%" />
+      <div class="confirm-actions">
+        <button class="confirm-btn" id="prompt-cancel">Cancel</button>
+        <button class="confirm-btn" id="prompt-ok">OK</button>
+      </div>
+    </div>
+  </div>
+
   <div id="db-connection-overlay" class="db-overlay-hidden">
     <div class="db-overlay-box">
       <div class="db-overlay-title" id="db-overlay-title">New Connection</div>
@@ -460,6 +592,29 @@
         <span style="flex:1"></span>
         <button id="db-form-cancel-btn" class="settings-btn" style="background:#2d2d40">Cancel</button>
         <button id="db-form-save-btn" class="settings-btn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="http-collection-overlay" class="db-overlay-hidden">
+    <div class="db-overlay-box">
+      <div class="db-overlay-title" id="http-overlay-title">Add Collection</div>
+      <div class="db-overlay-body">
+        <label class="db-field-label">Name</label>
+        <input id="http-form-name" type="text" class="db-form-input" placeholder="My Collection" />
+        <div id="http-form-scope-row">
+          <label class="db-field-label">Scope</label>
+          <select id="http-form-scope" class="db-form-input">
+            <option value="project">This project</option>
+            <option value="global">Global (all projects)</option>
+          </select>
+        </div>
+      </div>
+      <div class="db-overlay-actions">
+        <span id="http-form-status" class="db-form-status"></span>
+        <span style="flex:1"></span>
+        <button id="http-form-cancel-btn" class="settings-btn" style="background:#2d2d40">Cancel</button>
+        <button id="http-form-save-btn" class="settings-btn">Save</button>
       </div>
     </div>
   </div>

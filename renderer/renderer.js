@@ -377,6 +377,47 @@ if (confirmOverlay) {
   });
 }
 
+const promptOverlay = document.getElementById('prompt-overlay');
+const promptMessage = document.getElementById('prompt-message');
+const promptInput = document.getElementById('prompt-input');
+const promptOkBtn = document.getElementById('prompt-ok');
+const promptCancelBtn = document.getElementById('prompt-cancel');
+let promptResolve = null;
+
+function showPrompt(message, defaultValue) {
+  return new Promise((resolve) => {
+    promptResolve = resolve;
+    if (promptMessage) promptMessage.textContent = message || '';
+    if (promptInput) {
+      promptInput.value = defaultValue || '';
+      promptInput.classList.remove('err');
+    }
+    if (promptOverlay) promptOverlay.className = '';
+    setTimeout(() => { if (promptInput) { promptInput.focus(); promptInput.select(); } }, 0);
+  });
+}
+
+function closePromptOk() {
+  if (promptOverlay) promptOverlay.className = 'confirm-hidden';
+  const val = promptInput ? promptInput.value : '';
+  if (promptResolve) { promptResolve(val); promptResolve = null; }
+}
+
+function closePromptCancel() {
+  if (promptOverlay) promptOverlay.className = 'confirm-hidden';
+  if (promptResolve) { promptResolve(null); promptResolve = null; }
+}
+
+if (promptOkBtn) promptOkBtn.addEventListener('click', closePromptOk);
+if (promptCancelBtn) promptCancelBtn.addEventListener('click', closePromptCancel);
+if (promptOverlay) promptOverlay.addEventListener('click', (e) => {
+  if (e.target === promptOverlay) closePromptCancel();
+});
+if (promptInput) promptInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); closePromptOk(); }
+  else if (e.key === 'Escape') { e.preventDefault(); closePromptCancel(); }
+});
+
 function switchSidebarTab(tabName) {
   activeSidebarTab = tabName;
   const activityTabs = document.querySelectorAll('.activity-tab');
@@ -409,7 +450,7 @@ function switchSidebarTab(tabName) {
       if (sq) setTimeout(() => sq.focus(), 0);
     }
   } else {
-    if (tabName === 'git' || tabName === 'database' || tabName === 'run') {
+    if (tabName === 'git' || tabName === 'database' || tabName === 'run' || tabName === 'http') {
       sashInner.classList.remove('visible');
       sidebarEl.classList.remove('collapsed');
       sidebarEl.style.width = '220px';
@@ -418,6 +459,8 @@ function switchSidebarTab(tabName) {
       if (sashDbSidebar) sashDbSidebar.classList.toggle('visible', tabName === 'database');
       const sashRunInner = document.getElementById('sash-run-inner');
       if (sashRunInner) sashRunInner.classList.toggle('visible', tabName === 'run');
+      const sashHttpSidebar = document.getElementById('sash-http-sidebar');
+      if (sashHttpSidebar) sashHttpSidebar.classList.toggle('visible', tabName === 'http');
     } else if (tabName === 'search') {
       sashInner.classList.remove('visible');
       sidebarEl.classList.remove('collapsed');
@@ -428,7 +471,7 @@ function switchSidebarTab(tabName) {
     } else {
       window.api.gitWatchStop();
       sashInner.classList.remove('visible');
-      sidebarEl.classList.add('collapsed');
+      sidebarEl.classList.remove('collapsed');
       sidebarEl.style.width = '0px';
       sashSidebar.classList.remove('visible');
       if (sashGitSidebar) sashGitSidebar.classList.remove('visible');
@@ -436,7 +479,7 @@ function switchSidebarTab(tabName) {
     }
     const inputArea = document.getElementById('input-area');
     if (inputArea) inputArea.style.display = 'none';
-    if (cwdBarEl) cwdBarEl.style.display = (tabName === 'git' || tabName === 'database' || tabName === 'run' || tabName === 'settings') ? '' : 'none';
+    if (cwdBarEl) cwdBarEl.style.display = (tabName === 'git' || tabName === 'database' || tabName === 'run' || tabName === 'http' || tabName === 'settings') ? '' : 'none';
     if (tabName === 'settings') {
       if (addAuthBtn) addAuthBtn.style.display = '';
       if (authFormEl) authFormEl.style.display = 'none';
@@ -454,6 +497,9 @@ function switchSidebarTab(tabName) {
     }
     if (tabName === 'database') {
       initDatabaseTab();
+    }
+    if (tabName === 'http') {
+      initHttpTab();
     }
     if (tabName === 'run') {
       initRunTab();
@@ -2955,6 +3001,7 @@ if (!promptEl || !responseEl) {
       hideStartup();
     }
     cwdPathEl.textContent = newCwd;
+    httpCwd = newCwd;
     activeSessionId = null;
     cachedFileList = null;
     runConfigsLoaded = false;
@@ -2984,6 +3031,11 @@ if (!promptEl || !responseEl) {
     dbActiveConnectionId = null;
     if (dbInitialized) await refreshDbConnections();
     else if (activeSidebarTab === 'database') await initDatabaseTab();
+    // reload HTTP collections for the new project
+    httpActiveCollectionId = null;
+    httpActiveRequestId = null;
+    if (httpInitialized) await refreshHttpCollections();
+    else if (activeSidebarTab === 'http') await initHttpTab();
   });
 
   window.api.onGitChanged(() => {
@@ -4350,6 +4402,894 @@ if (sashDbSidebar) {
     dbConnectionsSection.style.flex = '0 0 ' + topH + 'px';
     dbSchemaSection.style.flex = '0 0 ' + botH + 'px';
   });
+}
+
+/* ===== HTTP client tab (Postman-like, HTTPS only) ===== */
+const httpTree = document.getElementById('http-collection-tree');
+const httpHistoryList = document.getElementById('http-history-list');
+const httpNewCollectionBtn = document.getElementById('http-new-collection-btn');
+const httpImportBtn = document.getElementById('http-import-btn');
+const sashHttpSidebar = document.getElementById('sash-http-sidebar');
+const sashHttpResponse = document.getElementById('sash-http-response');
+
+const httpEmpty = document.getElementById('http-empty');
+const httpWorkspace = document.getElementById('http-workspace');
+const httpReqName = document.getElementById('http-req-name');
+const httpMethod = document.getElementById('http-method');
+const httpUrl = document.getElementById('http-url');
+const httpSendBtn = document.getElementById('http-send-btn');
+const httpSaveBtn = document.getElementById('http-save-btn');
+
+const httpParamsList = document.getElementById('http-params-list');
+const httpHeadersList = document.getElementById('http-headers-list');
+const httpParamsCount = document.getElementById('http-params-count');
+const httpHeadersCount = document.getElementById('http-headers-count');
+
+const httpBodyMode = document.getElementById('http-body-mode');
+const httpBodyRaw = document.getElementById('http-body-raw');
+const httpBodyKvWrap = document.getElementById('http-body-kv');
+const httpBodyKvList = document.getElementById('http-body-kv-list');
+
+const httpAuthType = document.getElementById('http-auth-type');
+const httpAuthBasic = document.getElementById('http-auth-basic');
+const httpAuthUser = document.getElementById('http-auth-user');
+const httpAuthPass = document.getElementById('http-auth-pass');
+const httpAuthBearer = document.getElementById('http-auth-bearer');
+const httpAuthToken = document.getElementById('http-auth-token');
+const httpAuthApikey = document.getElementById('http-auth-apikey');
+const httpAuthApikeyKey = document.getElementById('http-auth-apikey-key');
+const httpAuthApikeyValue = document.getElementById('http-auth-apikey-value');
+const httpAuthApikeyAddto = document.getElementById('http-auth-apikey-addto');
+
+const httpResponsePanel = document.getElementById('http-response-panel');
+const httpResponseStatus = document.getElementById('http-response-status');
+const httpResponseTime = document.getElementById('http-response-time');
+const httpResponseSize = document.getElementById('http-response-size');
+const httpResponseBody = document.getElementById('http-response-body');
+const httpResponseHeaders = document.getElementById('http-response-headers');
+const httpRespPrettyBtn = document.getElementById('http-resp-pretty-btn');
+const httpRespSaveBtn = document.getElementById('http-resp-save-btn');
+
+const httpOverlay = document.getElementById('http-collection-overlay');
+const httpOverlayTitle = document.getElementById('http-overlay-title');
+const httpFormName = document.getElementById('http-form-name');
+const httpFormScope = document.getElementById('http-form-scope');
+const httpFormScopeRow = document.getElementById('http-form-scope-row');
+const httpFormStatus = document.getElementById('http-form-status');
+const httpFormCancelBtn = document.getElementById('http-form-cancel-btn');
+const httpFormSaveBtn = document.getElementById('http-form-save-btn');
+
+let httpInitialized = false;
+let httpCollections = [];
+let httpActiveCollectionId = null;
+let httpActiveRequestId = null;
+let httpActiveTab = 'params';
+let httpResponseTab = 'body';
+let httpPretty = true;
+let httpEditing = null;
+let httpEditingCollection = null;
+let httpLastResponse = null;
+let httpCwd = null;
+let httpHistory = [];
+const httpExpandedColls = new Set();
+const httpExpandedFolders = new Set();
+const httpExpandedSavedResponses = new Set();
+
+function httpActiveCollection() {
+  return httpCollections.find((c) => c.id === httpActiveCollectionId) || null;
+}
+function httpActiveRequest() {
+  const c = httpActiveCollection();
+  if (!c) return null;
+  return c.requests.find((r) => r.id === httpActiveRequestId) || null;
+}
+
+function httpClone(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+function httpDefaultRequest() {
+  return {
+    id: null, name: 'Untitled Request', method: 'GET', url: '',
+    queryParams: [], headers: [],
+    body: { mode: 'none', raw: '', urlencoded: [], formdata: [] },
+    auth: { type: 'none', basic: { user: '', pass: '' }, bearer: { token: '' }, apikey: { key: '', value: '', addTo: 'header' } },
+    folder: '',
+  };
+}
+
+async function refreshHttpCollections() {
+  httpCollections = await window.api.httpListCollections();
+  renderHttpTree();
+}
+
+function renderHttpTree() {
+  if (!httpTree) return;
+  httpTree.innerHTML = '';
+  if (!httpCollections.length) {
+    const empty = document.createElement('div');
+    empty.className = 'http-tree-empty';
+    empty.textContent = 'No collections yet';
+    httpTree.appendChild(empty);
+    return;
+  }
+  httpCollections.forEach((coll) => {
+    const node = document.createElement('div');
+    node.className = 'http-tree-node';
+    const expanded = httpExpandedColls.has(coll.id);
+    const row = document.createElement('div');
+    row.className = 'http-tree-row http-tree-collection' + (coll.id === httpActiveCollectionId ? ' active' : '');
+    const scopeTag = coll.scope === 'project' ? 'project' : 'global';
+    row.innerHTML =
+      '<span class="http-tree-caret ' + (expanded ? 'expanded' : 'collapsed') + '"></span>' +
+      '<span class="http-tree-label">' + escapeHtml(coll.name || 'Untitled') + '</span>' +
+      '<span class="http-scope-tag ' + scopeTag + '" title="' + scopeTag + ' collection">' + scopeTag + '</span>' +
+      '<span class="http-tree-actions">' +
+        '<button class="http-tree-action" title="Add request" data-act="add-req">+</button>' +
+        '<button class="http-tree-action danger" title="Delete" data-act="delete">×</button>' +
+      '</span>';
+    row.addEventListener('click', (e) => {
+      const actBtn = e.target.closest('[data-act]');
+      if (actBtn) {
+        e.stopPropagation();
+        if (actBtn.dataset.act === 'add-req') newHttpRequest(coll.id);
+        else if (actBtn.dataset.act === 'delete') removeHttpCollection(coll.id, coll.name);
+        return;
+      }
+      if (httpExpandedColls.has(coll.id)) httpExpandedColls.delete(coll.id);
+      else httpExpandedColls.add(coll.id);
+      renderHttpTree();
+    });
+    row.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showHttpContextMenu(e.clientX, e.clientY, [
+        { label: 'Add Request', action: () => newHttpRequest(coll.id) },
+        { label: 'Rename…', action: () => openHttpCollectionOverlay(coll) },
+        { label: 'Delete', action: () => removeHttpCollection(coll.id, coll.name), cls: 'danger' },
+      ]);
+    });
+    node.appendChild(row);
+
+    const kids = document.createElement('div');
+    kids.className = 'http-tree-children';
+    if (expanded) {
+      const folders = {};
+      const noFolder = [];
+      coll.requests.forEach((r) => {
+        if (r.folder) {
+          if (!folders[r.folder]) folders[r.folder] = [];
+          folders[r.folder].push(r);
+        } else noFolder.push(r);
+      });
+      noFolder.forEach((r) => kids.appendChild(makeHttpRequestLeaf(coll.id, r)));
+      Object.keys(folders).sort().forEach((f) => {
+        const fKey = coll.id + '|' + f;
+        const fExpanded = httpExpandedFolders.has(fKey);
+        const fNode = document.createElement('div');
+        const fRow = document.createElement('div');
+        fRow.className = 'http-tree-row http-tree-folder';
+        fRow.innerHTML =
+          '<span class="http-tree-caret ' + (fExpanded ? 'expanded' : 'collapsed') + '"></span>' +
+          '<span class="http-tree-label">' + escapeHtml(f) + '</span>';
+        fRow.addEventListener('click', () => {
+          if (httpExpandedFolders.has(fKey)) httpExpandedFolders.delete(fKey);
+          else httpExpandedFolders.add(fKey);
+          renderHttpTree();
+        });
+        fNode.appendChild(fRow);
+        const fKids = document.createElement('div');
+        fKids.className = 'http-tree-children';
+        if (fExpanded) folders[f].forEach((r) => fKids.appendChild(makeHttpRequestLeaf(coll.id, r)));
+        fNode.appendChild(fKids);
+        kids.appendChild(fNode);
+      });
+    }
+    node.appendChild(kids);
+    httpTree.appendChild(node);
+  });
+}
+
+function showHttpContextMenu(x, y, items) {
+  hideContextMenu();
+  const menu = document.createElement('div');
+  menu.id = 'context-menu';
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  items.forEach((it) => {
+    const item = document.createElement('div');
+    item.className = 'context-menu-item' + (it.cls ? ' ' + it.cls : '');
+    item.textContent = it.label;
+    item.addEventListener('click', () => { hideContextMenu(); it.action(); });
+    menu.appendChild(item);
+  });
+  document.body.appendChild(menu);
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  if (x + w > window.innerWidth) menu.style.left = (window.innerWidth - w - 4) + 'px';
+  if (y + h > window.innerHeight) menu.style.top = (window.innerHeight - h - 4) + 'px';
+}
+
+function makeHttpRequestLeaf(collectionId, r) {
+  const wrapper = document.createElement('div');
+  const leaf = document.createElement('div');
+  const rKey = collectionId + '|' + r.id;
+  const hasSaved = Array.isArray(r.savedResponses) && r.savedResponses.length > 0;
+  const savedExpanded = httpExpandedSavedResponses.has(rKey);
+  leaf.className = 'http-tree-row http-tree-request' +
+    (collectionId === httpActiveCollectionId && r.id === httpActiveRequestId ? ' active' : '');
+  const mc = 'm-' + (r.method || 'GET');
+  leaf.innerHTML =
+    '<span class="http-tree-caret ' + (hasSaved ? (savedExpanded ? 'expanded' : 'collapsed') : '') + '" style="visibility:' + (hasSaved ? 'visible' : 'hidden') + '"></span>' +
+    '<span class="http-method-badge ' + mc + '">' + escapeHtml((r.method || 'GET').toUpperCase()) + '</span>' +
+    '<span class="http-tree-label">' + escapeHtml(r.name || 'Request') + '</span>' +
+    (hasSaved ? '<span class="http-saved-count">' + r.savedResponses.length + '</span>' : '') +
+    '<span class="http-tree-actions">' +
+      '<button class="http-tree-action danger" title="Delete request" data-act="del-req">×</button>' +
+    '</span>';
+  leaf.addEventListener('click', (e) => {
+    const actBtn = e.target.closest('[data-act]');
+    if (actBtn && actBtn.dataset.act === 'del-req') {
+      e.stopPropagation();
+      removeHttpRequest(collectionId, r.id, r.name);
+      return;
+    }
+    if (hasSaved && e.target.classList.contains('http-tree-caret')) {
+      if (httpExpandedSavedResponses.has(rKey)) httpExpandedSavedResponses.delete(rKey);
+      else httpExpandedSavedResponses.add(rKey);
+      renderHttpTree();
+      return;
+    }
+    selectHttpRequest(collectionId, r.id);
+  });
+  leaf.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showHttpContextMenu(e.clientX, e.clientY, [
+      { label: 'Rename…', action: () => renameHttpRequest(collectionId, r) },
+      { label: 'Duplicate', action: () => duplicateHttpRequest(collectionId, r) },
+      { label: 'Delete', action: () => removeHttpRequest(collectionId, r.id, r.name), cls: 'danger' },
+    ]);
+  });
+  wrapper.appendChild(leaf);
+
+  if (hasSaved && savedExpanded) {
+    const savedKids = document.createElement('div');
+    savedKids.className = 'http-tree-children';
+    r.savedResponses.slice().reverse().forEach((sr) => {
+      const sRow = document.createElement('div');
+      sRow.className = 'http-tree-row http-saved-response';
+      const sCls = sr.status >= 200 && sr.status < 300 ? 's-2'
+        : sr.status >= 300 && sr.status < 400 ? 's-3'
+        : sr.status >= 400 && sr.status < 500 ? 's-4'
+        : sr.status >= 500 ? 's-5' : '';
+      sRow.innerHTML =
+        '<span class="http-tree-caret" style="visibility:hidden"></span>' +
+        '<span class="http-status-pill ' + sCls + '">' + sr.status + '</span>' +
+        '<span class="http-tree-label">' + escapeHtml(sr.name || 'Saved response') + '</span>' +
+        '<span class="http-tree-actions">' +
+          '<button class="http-tree-action danger" title="Delete saved response" data-act="del-sr">×</button>' +
+        '</span>';
+      sRow.addEventListener('click', (ev) => {
+        const aBtn = ev.target.closest('[data-act]');
+        if (aBtn && aBtn.dataset.act === 'del-sr') {
+          ev.stopPropagation();
+          deleteHttpSavedResponse(collectionId, r.id, sr.id);
+          return;
+        }
+        selectHttpRequest(collectionId, r.id);
+        loadSavedResponse(sr);
+      });
+      sRow.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        showHttpContextMenu(ev.clientX, ev.clientY, [
+          { label: 'Load', action: () => { selectHttpRequest(collectionId, r.id); loadSavedResponse(sr); } },
+          { label: 'Rename…', action: () => renameHttpSavedResponse(collectionId, r.id, sr) },
+          { label: 'Delete', action: () => deleteHttpSavedResponse(collectionId, r.id, sr.id), cls: 'danger' },
+        ]);
+      });
+      savedKids.appendChild(sRow);
+    });
+    wrapper.appendChild(savedKids);
+  }
+
+  return wrapper;
+}
+
+function renderHttpHistory() {
+  if (!httpHistoryList) return;
+  httpHistoryList.innerHTML = '';
+  if (!httpHistory.length) {
+    const empty = document.createElement('div');
+    empty.className = 'http-tree-empty';
+    empty.textContent = 'No history yet';
+    httpHistoryList.appendChild(empty);
+    return;
+  }
+  httpHistory.slice(0, 20).forEach((h) => {
+    const item = document.createElement('div');
+    item.className = 'http-history-item';
+    const mc = 'm-' + (h.method || 'GET');
+    const statusCls = h.status ? 's-' + String(h.status).charAt(0) : 'err';
+    item.innerHTML =
+      '<span class="http-method-badge ' + mc + '">' + escapeHtml((h.method || 'GET').toUpperCase()) + '</span>' +
+      '<span class="http-status-pill ' + statusCls + '">' + (h.status || '—') + '</span>' +
+      '<span class="http-tree-label">' + escapeHtml(h.url || '') + '</span>';
+    item.addEventListener('click', () => selectHttpRawRequest(h.request));
+    httpHistoryList.appendChild(item);
+  });
+}
+
+function loadHttpHistory() {
+  try {
+    const raw = localStorage.getItem('arkod-http-history');
+    if (raw) httpHistory = JSON.parse(raw) || [];
+  } catch (_) { httpHistory = []; }
+}
+
+function saveHttpHistory() {
+  try { localStorage.setItem('arkod-http-history', JSON.stringify(httpHistory.slice(0, 20))); } catch (_) {}
+}
+
+function pushHttpHistory(req, resp) {
+  httpHistory.unshift({
+    t: Date.now(),
+    method: req.method,
+    url: req.url,
+    status: resp && resp.status,
+    request: httpClone(req),
+  });
+  httpHistory = httpHistory.slice(0, 50);
+  saveHttpHistory();
+  renderHttpHistory();
+}
+
+function selectHttpRequest(collectionId, requestId) {
+  const coll = httpCollections.find((c) => c.id === collectionId);
+  if (!coll) return;
+  const req = coll.requests.find((r) => r.id === requestId);
+  if (!req) return;
+  httpActiveCollectionId = collectionId;
+  httpActiveRequestId = requestId;
+  httpExpandedColls.add(collectionId);
+  httpEditing = httpClone(req);
+  loadRequestIntoBuilder(httpEditing);
+  if (httpSaveBtn) httpSaveBtn.disabled = false;
+  renderHttpTree();
+}
+
+function selectHttpRawRequest(req) {
+  httpActiveCollectionId = null;
+  httpActiveRequestId = null;
+  httpEditing = httpClone(req || httpDefaultRequest());
+  if (!httpEditing.id) httpEditing.id = null;
+  loadRequestIntoBuilder(httpEditing);
+  if (httpSaveBtn) httpSaveBtn.disabled = true;
+  renderHttpTree();
+}
+
+function loadRequestIntoBuilder(req) {
+  if (httpEmpty) httpEmpty.style.display = 'none';
+  if (httpWorkspace) httpWorkspace.style.display = 'flex';
+  if (httpReqName) httpReqName.value = req.name || '';
+  if (httpMethod) httpMethod.value = (req.method || 'GET').toUpperCase();
+  if (httpUrl) httpUrl.value = req.url || '';
+  populateHttpKv(httpParamsList, req.queryParams || []);
+  populateHttpKv(httpHeadersList, req.headers || []);
+  if (httpBodyMode) httpBodyMode.value = (req.body && req.body.mode) || 'none';
+  if (httpBodyRaw) httpBodyRaw.value = (req.body && req.body.raw) || '';
+  const mode = (req.body && req.body.mode) || 'none';
+  if (mode === 'urlencoded') populateHttpKv(httpBodyKvList, req.body.urlencoded || []);
+  else if (mode === 'formdata') populateHttpKv(httpBodyKvList, req.body.formdata || []);
+  else populateHttpKv(httpBodyKvList, []);
+  if (httpAuthType) httpAuthType.value = (req.auth && req.auth.type) || 'none';
+  if (httpAuthUser) httpAuthUser.value = (req.auth && req.auth.basic && req.auth.basic.user) || '';
+  if (httpAuthPass) httpAuthPass.value = (req.auth && req.auth.basic && req.auth.basic.pass) || '';
+  if (httpAuthToken) httpAuthToken.value = (req.auth && req.auth.bearer && req.auth.bearer.token) || '';
+  if (httpAuthApikeyKey) httpAuthApikeyKey.value = (req.auth && req.auth.apikey && req.auth.apikey.key) || '';
+  if (httpAuthApikeyValue) httpAuthApikeyValue.value = (req.auth && req.auth.apikey && req.auth.apikey.value) || '';
+  if (httpAuthApikeyAddto) httpAuthApikeyAddto.value = (req.auth && req.auth.apikey && req.auth.apikey.addTo) || 'header';
+  updateHttpBodyFields();
+  updateHttpAuthFields();
+  updateHttpTabBadges();
+  clearHttpResponse();
+}
+
+function gatherRequestFromBuilder() {
+  const req = httpEditing ? httpClone(httpEditing) : httpDefaultRequest();
+  if (httpReqName) req.name = httpReqName.value.trim() || 'Request';
+  if (httpMethod) req.method = httpMethod.value.toUpperCase();
+  if (httpUrl) req.url = httpUrl.value.trim();
+  req.queryParams = collectHttpKv(httpParamsList);
+  req.headers = collectHttpKv(httpHeadersList);
+  const mode = httpBodyMode ? httpBodyMode.value : 'none';
+  req.body = { mode: mode, raw: '', urlencoded: [], formdata: [] };
+  if (mode === 'raw' || mode === 'json') {
+    req.body.raw = httpBodyRaw ? httpBodyRaw.value : '';
+  } else if (mode === 'urlencoded') {
+    req.body.urlencoded = collectHttpKv(httpBodyKvList);
+  } else if (mode === 'formdata') {
+    req.body.formdata = collectHttpKv(httpBodyKvList);
+  }
+  const authType = httpAuthType ? httpAuthType.value : 'none';
+  req.auth = {
+    type: authType,
+    basic: { user: httpAuthUser ? httpAuthUser.value : '', pass: httpAuthPass ? httpAuthPass.value : '' },
+    bearer: { token: httpAuthToken ? httpAuthToken.value : '' },
+    apikey: {
+      key: httpAuthApikeyKey ? httpAuthApikeyKey.value : '',
+      value: httpAuthApikeyValue ? httpAuthApikeyValue.value : '',
+      addTo: httpAuthApikeyAddto ? httpAuthApikeyAddto.value : 'header',
+    },
+  };
+  return req;
+}
+
+function makeHttpKvRow(item) {
+  const row = document.createElement('div');
+  row.className = 'http-kv-row';
+  const enabled = document.createElement('input');
+  enabled.type = 'checkbox';
+  enabled.checked = item ? item.enabled !== false : true;
+  const key = document.createElement('input');
+  key.type = 'text';
+  key.value = (item && item.key) || '';
+  key.placeholder = 'key';
+  const value = document.createElement('input');
+  value.type = 'text';
+  value.value = (item && item.value) || '';
+  value.placeholder = 'value';
+  const remove = document.createElement('button');
+  remove.className = 'http-kv-remove';
+  remove.title = 'Remove';
+  remove.textContent = '×';
+  remove.addEventListener('click', () => { row.remove(); updateHttpTabBadges(); });
+  row.appendChild(enabled);
+  row.appendChild(key);
+  row.appendChild(value);
+  row.appendChild(remove);
+  key.addEventListener('input', updateHttpTabBadges);
+  value.addEventListener('input', updateHttpTabBadges);
+  return row;
+}
+
+function populateHttpKv(container, items) {
+  if (!container) return;
+  container.innerHTML = '';
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) { container.appendChild(makeHttpKvRow(null)); return; }
+  list.forEach((it) => container.appendChild(makeHttpKvRow(it)));
+}
+
+function addHttpKvRow(container) {
+  if (!container) return;
+  container.appendChild(makeHttpKvRow(null));
+  container.scrollTop = container.scrollHeight;
+}
+
+function collectHttpKv(container) {
+  if (!container) return [];
+  const out = [];
+  container.querySelectorAll('.http-kv-row').forEach((row) => {
+    const enabled = row.querySelector('input[type="checkbox"]');
+    const textInputs = row.querySelectorAll('input[type="text"]');
+    const key = textInputs[0];
+    const value = textInputs[1];
+    const k = key ? key.value.trim() : '';
+    const v = value ? value.value : '';
+    if (!k && !v) return;
+    out.push({ key: k, value: v, enabled: enabled ? enabled.checked : true });
+  });
+  return out;
+}
+
+function updateHttpTabBadges() {
+  const params = collectHttpKv(httpParamsList).filter((p) => p.enabled).length;
+  const headers = collectHttpKv(httpHeadersList).filter((h) => h.enabled).length;
+  if (httpParamsCount) httpParamsCount.textContent = params > 0 ? params : '';
+  if (httpHeadersCount) httpHeadersCount.textContent = headers > 0 ? headers : '';
+}
+
+function updateHttpBodyFields() {
+  const mode = httpBodyMode ? httpBodyMode.value : 'none';
+  if (httpBodyRaw) httpBodyRaw.style.display = (mode === 'raw' || mode === 'json') ? 'block' : 'none';
+  if (httpBodyKvWrap) httpBodyKvWrap.style.display = (mode === 'urlencoded' || mode === 'formdata') ? 'flex' : 'none';
+}
+
+function updateHttpAuthFields() {
+  const type = httpAuthType ? httpAuthType.value : 'none';
+  if (httpAuthBasic) httpAuthBasic.style.display = type === 'basic' ? 'flex' : 'none';
+  if (httpAuthBearer) httpAuthBearer.style.display = type === 'bearer' ? 'flex' : 'none';
+  if (httpAuthApikey) httpAuthApikey.style.display = type === 'apikey' ? 'flex' : 'none';
+}
+
+function setHttpTab(tab) {
+  httpActiveTab = tab;
+  document.querySelectorAll('.http-tab').forEach((b) => b.classList.toggle('active', b.dataset.htab === tab));
+  document.querySelectorAll('.http-tab-panel').forEach((p) => {
+    const id = 'http-tab-' + tab;
+    p.style.display = (p.id === id) ? 'flex' : 'none';
+  });
+}
+
+function setHttpResponseTab(tab) {
+  httpResponseTab = tab;
+  document.querySelectorAll('.http-resp-tab').forEach((b) => b.classList.toggle('active', b.dataset.rtab === tab));
+  if (httpResponseBody) httpResponseBody.style.display = tab === 'body' ? 'block' : 'none';
+  if (httpResponseHeaders) httpResponseHeaders.style.display = tab === 'headers' ? 'block' : 'none';
+}
+
+function clearHttpResponse() {
+  if (httpResponseStatus) { httpResponseStatus.className = 'http-status-pill'; httpResponseStatus.textContent = ''; }
+  if (httpResponseTime) httpResponseTime.textContent = '';
+  if (httpResponseSize) httpResponseSize.textContent = '';
+  if (httpResponseBody) httpResponseBody.innerHTML = '<div class="http-response-empty">Send a request to see the response.</div>';
+  if (httpResponseHeaders) httpResponseHeaders.innerHTML = '';
+  if (httpRespSaveBtn) httpRespSaveBtn.disabled = true;
+}
+
+function prettyJsonHtml(str) {
+  let obj;
+  try { obj = JSON.parse(str); }
+  catch (_) { return null; }
+  const pretty = JSON.stringify(obj, null, 2);
+  const escaped = escapeHtml(pretty);
+  return escaped.replace(/("(?:[^"\\]|\\.)*")(\s*:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false)\b|\b(null)\b/g,
+    (m, strTok, colon, num, bool, nul) => {
+      if (strTok) {
+        if (colon) return '<span class="http-json-key">' + strTok + '</span>' + colon;
+        return '<span class="http-json-string">' + strTok + '</span>';
+      }
+      if (num) return '<span class="http-json-number">' + num + '</span>';
+      if (bool) return '<span class="http-json-bool">' + bool + '</span>';
+      if (nul) return '<span class="http-json-null">' + nul + '</span>';
+      return m;
+    });
+}
+
+function renderHttpResponse(resp) {
+  httpLastResponse = resp;
+  if (!resp || !resp.ok) {
+    if (httpResponseStatus) { httpResponseStatus.className = 'http-status-pill err'; httpResponseStatus.textContent = 'Error'; }
+    if (httpResponseTime) httpResponseTime.textContent = '';
+    if (httpResponseSize) httpResponseSize.textContent = '';
+    if (httpResponseBody) httpResponseBody.innerHTML = '<div class="http-response-empty">' + escapeHtml((resp && resp.error) || 'Request failed') + '</div>';
+    if (httpResponseHeaders) httpResponseHeaders.innerHTML = '';
+    setHttpResponseTab('body');
+    return;
+  }
+  const code = resp.status;
+  const cls = code >= 200 && code < 300 ? 's-2'
+    : code >= 300 && code < 400 ? 's-3'
+    : code >= 400 && code < 500 ? 's-4'
+    : code >= 500 ? 's-5' : '';
+  if (httpResponseStatus) { httpResponseStatus.className = 'http-status-pill ' + cls; httpResponseStatus.textContent = code + ' ' + (resp.statusText || ''); }
+  if (httpResponseTime) httpResponseTime.textContent = resp.timeMs + ' ms';
+  if (httpResponseSize) httpResponseSize.textContent = formatHttpSize(resp.size);
+  if (httpRespSaveBtn) httpRespSaveBtn.disabled = false;
+  const isJson = /json/i.test(resp.contentType || '') || /^\s*[\[{]/.test(resp.body || '');
+  if (httpResponseBody) {
+    if (httpPretty && isJson) {
+      const html = prettyJsonHtml(resp.body || '');
+      if (html != null) httpResponseBody.innerHTML = html;
+      else { httpResponseBody.textContent = resp.body || ''; }
+    } else {
+      httpResponseBody.textContent = resp.body || '';
+    }
+  }
+  if (httpResponseHeaders) {
+    httpResponseHeaders.innerHTML = '';
+    const hdrs = resp.headers || {};
+    Object.keys(hdrs).forEach((k) => {
+      const row = document.createElement('div');
+      row.className = 'http-resp-header-row';
+      row.innerHTML = '<span class="http-resp-header-key">' + escapeHtml(k) + '</span>' +
+        '<span class="http-resp-header-val">' + escapeHtml(Array.isArray(hdrs[k]) ? hdrs[k].join(', ') : hdrs[k]) + '</span>';
+      httpResponseHeaders.appendChild(row);
+    });
+  }
+  setHttpResponseTab(httpResponseTab);
+}
+
+function formatHttpSize(bytes) {
+  if (bytes == null) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+}
+
+async function saveHttpResponse() {
+  if (!httpLastResponse || !httpLastResponse.ok) return;
+  if (!httpActiveCollectionId || !httpActiveRequestId) return;
+  const name = await showPrompt('Save response as', '');
+  if (name === null) return;
+  const sr = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    name: name.trim(),
+    status: httpLastResponse.status,
+    statusText: httpLastResponse.statusText,
+    timeMs: httpLastResponse.timeMs,
+    size: httpLastResponse.size,
+    contentType: httpLastResponse.contentType,
+    headers: httpLastResponse.headers,
+    body: httpLastResponse.body,
+    ts: Date.now(),
+  };
+  const req = gatherRequestFromBuilder();
+  if (!Array.isArray(req.savedResponses)) req.savedResponses = [];
+  req.savedResponses.push(sr);
+  const res = await window.api.httpUpdateRequest(httpActiveCollectionId, req);
+  if (!res || !res.ok) { alert((res && res.error) || 'Failed to save'); return; }
+  httpEditing = httpClone(res.request);
+  const coll = httpCollections.find((c) => c.id === httpActiveCollectionId);
+  if (coll) {
+    const idx = coll.requests.findIndex((r) => r.id === httpActiveRequestId);
+    if (idx >= 0) coll.requests[idx] = res.request;
+  }
+  const rKey = httpActiveCollectionId + '|' + httpActiveRequestId;
+  httpExpandedSavedResponses.add(rKey);
+  renderHttpTree();
+  if (httpRespSaveBtn) { const t = httpRespSaveBtn.textContent; httpRespSaveBtn.textContent = '✓ Saved'; setTimeout(() => { httpRespSaveBtn.textContent = t; }, 1500); }
+}
+
+function loadSavedResponse(sr) {
+  if (!sr) { if (httpLastResponse) renderHttpResponse(httpLastResponse); return; }
+  renderHttpResponse({ ok: true, status: sr.status, statusText: sr.statusText, timeMs: sr.timeMs, size: sr.size, contentType: sr.contentType, headers: sr.headers, body: sr.body });
+}
+
+async function deleteHttpSavedResponse(collectionId, reqId, srId) {
+  const coll = httpCollections.find((c) => c.id === collectionId);
+  if (!coll) return;
+  const req = coll.requests.find((r) => r.id === reqId);
+  if (!req || !Array.isArray(req.savedResponses)) return;
+  req.savedResponses = req.savedResponses.filter((s) => s.id !== srId);
+  const res = await window.api.httpUpdateRequest(collectionId, req);
+  if (!res || !res.ok) return;
+  if (httpActiveCollectionId === collectionId && httpActiveRequestId === reqId) {
+    httpEditing = httpClone(res.request);
+  }
+  renderHttpTree();
+}
+
+async function renameHttpSavedResponse(collectionId, reqId, sr) {
+  const name = await showPrompt('Rename saved response', sr.name || '');
+  if (name === null) return;
+  const trimmed = name.trim();
+  const coll = httpCollections.find((c) => c.id === collectionId);
+  if (!coll) return;
+  const req = coll.requests.find((r) => r.id === reqId);
+  if (!req || !Array.isArray(req.savedResponses)) return;
+  const target = req.savedResponses.find((s) => s.id === sr.id);
+  if (!target) return;
+  target.name = trimmed;
+  const res = await window.api.httpUpdateRequest(collectionId, req);
+  if (!res || !res.ok) return;
+  if (httpActiveCollectionId === collectionId && httpActiveRequestId === reqId) {
+    httpEditing = httpClone(res.request);
+  }
+  renderHttpTree();
+}
+
+async function sendHttpRequest() {
+  const req = gatherRequestFromBuilder();
+  if (!req.url) { if (httpUrl) httpUrl.focus(); return; }
+  if (httpSendBtn) { httpSendBtn.disabled = true; httpSendBtn.textContent = 'Sending…'; }
+  const res = await window.api.httpExecute(req);
+  if (httpSendBtn) { httpSendBtn.disabled = false; httpSendBtn.textContent = '▶ Send'; }
+  renderHttpResponse(res);
+  if (res && res.ok) pushHttpHistory(req, res);
+  if (httpActiveCollectionId && httpActiveRequestId) await saveCurrentHttpRequest(true);
+}
+
+async function saveCurrentHttpRequest(silent) {
+  if (!httpActiveCollectionId || !httpActiveRequestId) return;
+  const req = gatherRequestFromBuilder();
+  const res = await window.api.httpUpdateRequest(httpActiveCollectionId, req);
+  if (!res || !res.ok) { if (!silent) alert((res && res.error) || 'Failed to save'); return; }
+  const coll = httpCollections.find((c) => c.id === httpActiveCollectionId);
+  if (coll) {
+    const idx = coll.requests.findIndex((r) => r.id === httpActiveRequestId);
+    if (idx >= 0) coll.requests[idx] = res.request;
+  }
+  httpEditing = httpClone(res.request);
+  renderHttpTree();
+}
+
+async function newHttpRequest(collectionId) {
+  const res = await window.api.httpAddRequest(collectionId, { name: 'Untitled Request', method: 'GET', url: '' });
+  if (!res || !res.ok) { alert((res && res.error) || 'Failed to add request'); return; }
+  await refreshHttpCollections();
+  httpExpandedColls.add(collectionId);
+  selectHttpRequest(collectionId, res.request.id);
+}
+
+async function removeHttpRequest(collectionId, reqId, name) {
+  if (!confirm('Delete request "' + (name || '') + '"?')) return;
+  await window.api.httpRemoveRequest(collectionId, reqId);
+  if (httpActiveRequestId === reqId) {
+    httpActiveRequestId = null;
+    httpActiveCollectionId = null;
+    if (httpWorkspace) httpWorkspace.style.display = 'none';
+    if (httpEmpty) httpEmpty.style.display = '';
+  }
+  await refreshHttpCollections();
+}
+
+async function renameHttpRequest(collectionId, r) {
+  const name = await showPrompt('Rename request', r.name || 'Request');
+  if (name === null) return;
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  if (httpActiveCollectionId === collectionId && httpActiveRequestId === r.id) {
+    // editing the active request: update via the builder then refresh tree
+    if (httpReqName) httpReqName.value = trimmed;
+    await saveCurrentHttpRequest(false);
+  } else {
+    const updated = { ...r, name: trimmed };
+    const res = await window.api.httpUpdateRequest(collectionId, updated);
+    if (!res || !res.ok) { alert((res && res.error) || 'Failed to rename'); return; }
+    await refreshHttpCollections();
+  }
+}
+
+async function duplicateHttpRequest(collectionId, r) {
+  const copy = httpClone(r);
+  copy.name = (r.name || 'Request') + ' copy';
+  const res = await window.api.httpAddRequest(collectionId, copy);
+  if (!res || !res.ok) { alert((res && res.error) || 'Failed to duplicate'); return; }
+  await refreshHttpCollections();
+  httpExpandedColls.add(collectionId);
+  selectHttpRequest(collectionId, res.request.id);
+}
+
+async function removeHttpCollection(id, name) {
+  if (!confirm('Delete collection "' + (name || '') + '" and all its requests?')) return;
+  await window.api.httpRemoveCollection(id);
+  httpExpandedColls.delete(id);
+  if (httpActiveCollectionId === id) {
+    httpActiveCollectionId = null;
+    httpActiveRequestId = null;
+    if (httpWorkspace) httpWorkspace.style.display = 'none';
+    if (httpEmpty) httpEmpty.style.display = '';
+  }
+  await refreshHttpCollections();
+}
+
+function openHttpCollectionOverlay(config) {
+  httpEditingCollection = config ? config.id : null;
+  if (httpOverlay) httpOverlay.classList.remove('db-overlay-hidden');
+  if (httpOverlay) httpOverlay.classList.toggle('editing', !!config);
+  if (httpOverlayTitle) httpOverlayTitle.textContent = config ? 'Rename Collection' : 'Add Collection';
+  if (httpFormName) httpFormName.value = config ? (config.name || '') : '';
+  if (httpFormScope) httpFormScope.value = config ? (config.scope === 'global' ? 'global' : 'project') : (httpCwd ? 'project' : 'global');
+  if (httpFormStatus) { httpFormStatus.textContent = ''; httpFormStatus.className = 'db-form-status'; }
+  setTimeout(() => { if (httpFormName) httpFormName.focus(); }, 0);
+}
+
+function closeHttpCollectionOverlay() {
+  if (httpOverlay) httpOverlay.classList.add('db-overlay-hidden');
+  httpEditingCollection = null;
+}
+
+async function saveHttpCollectionForm() {
+  const name = httpFormName ? httpFormName.value.trim() : '';
+  if (!name) { if (httpFormStatus) { httpFormStatus.textContent = 'Name is required'; httpFormStatus.className = 'db-form-status err'; } return; }
+  if (httpEditingCollection) {
+    const res = await window.api.httpRenameCollection(httpEditingCollection, name);
+    if (!res || !res.ok) { if (httpFormStatus) { httpFormStatus.textContent = (res && res.error) || 'Failed'; httpFormStatus.className = 'db-form-status err'; } return; }
+  } else {
+    const scope = httpFormScope ? httpFormScope.value : 'global';
+    const res = await window.api.httpAddCollection({ name, scope });
+    if (!res || !res.ok) { if (httpFormStatus) { httpFormStatus.textContent = (res && res.error) || 'Failed'; httpFormStatus.className = 'db-form-status err'; } return; }
+    if (res.collection) httpExpandedColls.add(res.collection.id);
+  }
+  closeHttpCollectionOverlay();
+  await refreshHttpCollections();
+}
+
+async function importPostman() {
+  const scope = httpCwd ? 'project' : 'global';
+  const res = await window.api.httpImportPostmanFile(scope);
+  if (!res || !res.ok) {
+    if (res && res.error) alert('Import failed: ' + res.error);
+    return;
+  }
+  if (res.collection) httpExpandedColls.add(res.collection.id);
+  await refreshHttpCollections();
+}
+
+async function initHttpTab() {
+  if (httpInitialized) return;
+  httpInitialized = true;
+  loadHttpHistory();
+  renderHttpHistory();
+  try { httpCwd = await window.api.getCwd(); } catch (_) { httpCwd = null; }
+  await refreshHttpCollections();
+
+  if (httpNewCollectionBtn) httpNewCollectionBtn.addEventListener('click', () => openHttpCollectionOverlay(null));
+  if (httpImportBtn) httpImportBtn.addEventListener('click', importPostman);
+  if (httpSendBtn) httpSendBtn.addEventListener('click', sendHttpRequest);
+  if (httpSaveBtn) httpSaveBtn.addEventListener('click', () => saveCurrentHttpRequest(false));
+
+  document.querySelectorAll('.http-tab').forEach((btn) => {
+    btn.addEventListener('click', () => setHttpTab(btn.dataset.htab));
+  });
+  document.querySelectorAll('.http-resp-tab').forEach((btn) => {
+    btn.addEventListener('click', () => setHttpResponseTab(btn.dataset.rtab));
+  });
+  document.querySelectorAll('.http-kv-add').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const target = document.getElementById(btn.dataset.kvList);
+      addHttpKvRow(target);
+      updateHttpTabBadges();
+    });
+  });
+
+  if (httpBodyMode) httpBodyMode.addEventListener('change', () => {
+    const mode = httpBodyMode.value;
+    if (mode === 'urlencoded') populateHttpKv(httpBodyKvList, collectHttpKv(httpBodyKvList));
+    else if (mode === 'formdata') populateHttpKv(httpBodyKvList, collectHttpKv(httpBodyKvList));
+    updateHttpBodyFields();
+  });
+  if (httpAuthType) httpAuthType.addEventListener('change', updateHttpAuthFields);
+  if (httpRespPrettyBtn) httpRespPrettyBtn.addEventListener('click', () => {
+    httpPretty = !httpPretty;
+    httpRespPrettyBtn.classList.toggle('active', httpPretty);
+    httpRespPrettyBtn.textContent = httpPretty ? 'Pretty' : 'Raw';
+    if (httpLastResponse) renderHttpResponse(httpLastResponse);
+  });
+  if (httpRespSaveBtn) httpRespSaveBtn.addEventListener('click', saveHttpResponse);
+
+  if (httpUrl) httpUrl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); sendHttpRequest(); }
+  });
+  if (httpBodyRaw) httpBodyRaw.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); sendHttpRequest(); }
+  });
+
+  if (httpFormSaveBtn) httpFormSaveBtn.addEventListener('click', saveHttpCollectionForm);
+  if (httpFormCancelBtn) httpFormCancelBtn.addEventListener('click', closeHttpCollectionOverlay);
+  if (httpOverlay) httpOverlay.addEventListener('click', (e) => { if (e.target === httpOverlay) closeHttpCollectionOverlay(); });
+  if (httpFormName) httpFormName.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveHttpCollectionForm(); } });
+
+  if (sashHttpSidebar) {
+    const collSection = document.getElementById('http-collections-section');
+    const histSection = document.getElementById('http-history-section');
+    sashHttpSidebar.addEventListener('mousedown', (e) => {
+      if (!sidebarVisible) return;
+      sashDrag = { type: 'http-sidebar', startY: e.clientY, startTop: collSection.offsetHeight, total: collSection.offsetHeight + histSection.offsetHeight };
+      sashHttpSidebar.classList.add('active');
+      document.body.classList.add('dragging');
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!sashDrag || sashDrag.type !== 'http-sidebar') return;
+      const delta = e.clientY - sashDrag.startY;
+      const minH = 60;
+      let topH = Math.max(minH, sashDrag.startTop + delta);
+      let botH = sashDrag.total - topH;
+      if (botH < minH) { botH = minH; topH = sashDrag.total - botH; }
+      collSection.style.flex = '0 0 ' + topH + 'px';
+      histSection.style.flex = '0 0 ' + botH + 'px';
+    });
+  }
+
+  if (sashHttpResponse) {
+    sashHttpResponse.addEventListener('mousedown', (e) => {
+      sashDrag = { type: 'http-response', startY: e.clientY, startH: httpResponsePanel.offsetHeight };
+      sashHttpResponse.classList.add('active');
+      document.body.classList.add('dragging');
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!sashDrag || sashDrag.type !== 'http-response') return;
+      const delta = sashDrag.startY - e.clientY;
+      let h = Math.max(100, sashDrag.startH + delta);
+      const maxH = (httpWorkspace ? httpWorkspace.offsetHeight : 600) - 180;
+      if (maxH > 100 && h > maxH) h = maxH;
+      httpResponsePanel.style.flex = '0 0 ' + h + 'px';
+    });
+  }
 }
 
 if (gitRefreshBtn) gitRefreshBtn.addEventListener('click', refreshGitUI);
