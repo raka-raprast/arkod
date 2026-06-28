@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('electron');
-const { spawn, execFile } = require('child_process');
+const { spawn, execFile, execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -10,6 +10,41 @@ const dbManager = require('./db');
 const httpManager = require('./http');
 
 try { require('electron-reload')(__dirname); } catch (_) {}
+
+function fixPath() {
+  if (process.platform === 'win32') return;
+  const shell = process.env.SHELL || '/bin/zsh';
+  const marker = '===ARKOD_PATH_MARKER===';
+  try {
+    const out = execFileSync(shell, ['-ilc', `echo "${marker}"; echo "$PATH"`], {
+      encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const idx = out.lastIndexOf(marker);
+    if (idx >= 0) {
+      const after = out.slice(idx + marker.length);
+      const shellPath = after.split('\n').map(s => s.trim()).filter(Boolean)[0];
+      if (shellPath) {
+        const extras = shellPath.split(path.delimiter).filter(p => p);
+        const current = (process.env.PATH || '').split(path.delimiter).filter(p => p);
+        const merged = [...extras, ...current].filter((p, i, arr) => arr.indexOf(p) === i);
+        process.env.PATH = merged.join(path.delimiter);
+      }
+    }
+  } catch (_) {}
+}
+fixPath();
+
+let ompBin = 'omp';
+(function resolveOmp() {
+  for (const loc of [
+    '/opt/homebrew/bin/omp',
+    '/usr/local/bin/omp',
+    path.join(os.homedir(), '.local', 'bin', 'omp'),
+    path.join(os.homedir(), '.cargo', 'bin', 'omp'),
+  ]) {
+    try { if (fs.existsSync(loc)) { ompBin = loc; return; } } catch (_) {}
+  }
+})();
 
 let mainWindow;
 let cwd;
@@ -380,7 +415,7 @@ function escapeRegExp(s) {
 
 function fetchModels() {
   return new Promise((resolve) => {
-    execFile('omp', ['models', '--json'], { timeout: 15000 }, (err, stdout) => {
+    execFile(ompBin, ['models', '--json'], { timeout: 15000 }, (err, stdout) => {
       if (err) return resolve([]);
       try {
         const data = JSON.parse(stdout);
@@ -1183,7 +1218,7 @@ function generateSessionTitle(sessionId, firstPrompt) {
     if (varName && key && !env[varName]) env[varName] = key;
   }
 
-  const titleProc = spawn('omp', args, { cwd, env });
+  const titleProc = spawn(ompBin, args, { cwd, env });
   let output = '';
   let titleTimeout = false;
   const timer = setTimeout(() => { titleTimeout = true; titleProc.kill(); }, 15000);
@@ -1412,7 +1447,7 @@ ipcMain.handle('llm:send', async (_event, payload) => {
     hadAssistantContent = false;
     lastChunkHR = process.hrtime.bigint();
     eventCounts = {};
-    proc = spawn('omp', runArgs, { cwd, env, detached: true });
+    proc = spawn(ompBin, runArgs, { cwd, env, detached: true });
     activeProc = proc;
     armTimeout();
     activeCancelFinalize = finalize;
@@ -2153,7 +2188,7 @@ ipcMain.handle('git:commit-gen', async () => {
     args.push(prompt);
 
     const commitMsg = await new Promise((resolve, reject) => {
-      const proc = spawn('omp', args, { cwd, env });
+      const proc = spawn(ompBin, args, { cwd, env });
       let output = '';
       proc.stdout.on('data', (d) => { output += d.toString(); });
       proc.stderr.on('data', () => {});
@@ -2553,7 +2588,7 @@ ipcMain.handle('term:create', () => {
   const shell = process.env.SHELL || '/bin/zsh';
   const pty = require('node-pty');
   try {
-    const proc = pty.spawn(shell, [], { cwd, env: process.env, cols: 80, rows: 24 });
+    const proc = pty.spawn(shell, ['-l'], { cwd, env: process.env, cols: 80, rows: 24 });
     proc.onData((data) => mainWindow.webContents.send('term:data', id, data));
     proc.onExit(() => {
       termProcs.delete(id);
